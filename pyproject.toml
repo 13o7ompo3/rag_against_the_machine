@@ -1,0 +1,18 @@
+[project]
+name = "rag-against-the-machine"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "fire>=0.7.1",
+    "langchain-text-splitters>=1.1.2",
+    "pydantic>=2.13.4",
+    "tqdm>=4.68.4",
+]
+
+[dependency-groups]
+dev = [
+    "flake8>=7.3.0",
+    "mypy>=2.3.0",
+]
