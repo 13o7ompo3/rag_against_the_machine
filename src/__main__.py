@@ -1,18 +1,35 @@
 import fire
 import logging
+import json
+import uuid
+import os
+from tqdm import tqdm
+from src.indexer import build_index
+from src.retriever import BM25Retriever
+from src.models import StudentSearchResults, RagDataset
 
-logging.basicConfig(level=logging.INFO, format='%(levelname)s - %(message)s')
+logging.basicConfig(level=logging.WARNING, format='%(levelname)s - %(message)s')
+
 
 class RagCLI:
     """Command-Line Interface for the RAG pipeline."""
 
     def index(self, max_chunk_size: int = 2000) -> None:
         """Ingest data/raw/ and build the index under data/processed/."""
+
         logging.info(f"Running indexer with max_chunk_size={max_chunk_size}...")
+        build_index("data/raw/", "data/processed/", max_chunk_size)
 
     def search(self, query: str, k: int) -> None:
         """Return the top-k sources for a single query."""
         logging.info(f"Searching for '{query}' returning top {k} results...")
+        retriever = BM25Retriever(processed_dir="data/processed")
+
+        result = retriever.search_single(query,
+                                         question_id=str(uuid.uuid4()),
+                                         k=k)
+
+        print(result.model_dump_json(indent=2))
 
     def search_dataset(self, dataset_path: str, k: int, save_directory: str) -> None:
         """Run search over a whole dataset and write a StudentSearchResults JSON file."""
@@ -29,6 +46,7 @@ class RagCLI:
     def evaluate(self, student_search_results_path: str, dataset_path: str) -> None:
         """Report your own recall@k against a ground-truth dataset."""
         logging.info(f"Evaluating {student_search_results_path} against ground truth {dataset_path}...")
+
 
 if __name__ == '__main__':
     fire.Fire(RagCLI)
