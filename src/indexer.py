@@ -79,7 +79,9 @@ class IndexBuilder:
         """
         if file_path.endswith('.py'):
             return chunk_python(file_path, text, self.max_chunk_size)
-        return chunk_markdown(file_path, text, self.max_chunk_size)
+        if file_path.endswith('.md') or file_path.endswith('.txt'):
+            return chunk_markdown(file_path, text, self.max_chunk_size)
+        return []
 
     def _build_corpus(self) -> Tuple[List[List[str]], List[MinimalSource]]:
         """Builds the corpus for BM25 indexing.
