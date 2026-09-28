@@ -6,6 +6,7 @@ import os
 from tqdm import tqdm
 from src.indexer import build_index
 from src.retriever import BM25Retriever
+from src.evaluator import evaluate_results
 from src.models import StudentSearchResults, RagDataset
 
 logging.basicConfig(level=logging.WARNING, format='%(levelname)s - %(message)s')
@@ -95,9 +96,17 @@ class RagCLI:
         """Generate answers for a dataset, producing a StudentSearchResultsAndAnswer JSON file."""
         logging.info(f"Generating answers for {student_search_results_path}. Saving to {save_directory}...")
 
-    def evaluate(self, student_search_results_path: str, dataset_path: str) -> None:
-        """Report your own recall@k against a ground-truth dataset."""
-        logging.info(f"Evaluating {student_search_results_path} against ground truth {dataset_path}...")
+    def evaluate(self, student_search_results_path: str,
+                 dataset_path: str) -> None:
+        """Report your own recall@k against a ground-truth dataset.
+
+        Args:
+            student_search_results_path: Path to the StudentSearchResults file.
+            dataset_path: Path to the RagDataset JSON file.
+        """
+        logging.info(f"Evaluating {student_search_results_path}"
+                     f" against ground truth {dataset_path}...")
+        evaluate_results(student_search_results_path, dataset_path)
 
 
 if __name__ == '__main__':
