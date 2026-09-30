@@ -1,4 +1,6 @@
-from typing import List, Tuple
+import os
+from dataclasses import dataclass
+from typing import List
 from langchain_text_splitters import RecursiveCharacterTextSplitter, Language
 from src.models import MinimalSource
 import logging
@@ -7,8 +9,17 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-def _process_splits(splitter: RecursiveCharacterTextSplitter, file_path: str,
-                    text: str) -> List[Tuple[MinimalSource, str]]:
+@dataclass(frozen=True)
+class ChunkedDocument:
+    source: MinimalSource
+    text: str
+
+
+def _process_splits(
+    splitter: RecursiveCharacterTextSplitter,
+    file_path: str,
+    text: str,
+) -> List[ChunkedDocument]:
     """
     Internal helper to map LangChain's string chunks back to their
     absolute character indices in the original text.
@@ -23,7 +34,7 @@ def _process_splits(splitter: RecursiveCharacterTextSplitter, file_path: str,
         and the corresponding chunk.
     """
     splits = splitter.split_text(text)
-    chunks = []
+    chunks: List[ChunkedDocument] = []
     current_offset = 0
 
     for chunk in splits:
@@ -34,19 +45,27 @@ def _process_splits(splitter: RecursiveCharacterTextSplitter, file_path: str,
 
         end_idx = start_idx + len(chunk)
 
-        chunks.append((MinimalSource(
-            file_path=file_path,
-            first_character_index=start_idx,
-            last_character_index=end_idx
-        ), chunk))
+        chunks.append(
+            ChunkedDocument(
+                source=MinimalSource(
+                    file_path=file_path,
+                    first_character_index=start_idx,
+                    last_character_index=end_idx,
+                ),
+                text=chunk,
+            )
+        )
 
         current_offset = end_idx
 
     return chunks
 
 
-def chunk_markdown(file_path: str, text: str, max_chunk_size: int = 2000
-                   ) -> List[Tuple[MinimalSource, str]]:
+def chunk_markdown(
+    file_path: str,
+    text: str,
+    max_chunk_size: int = 2000,
+) -> List[ChunkedDocument]:
     """
     Wrapper for Markdown chunking using LangChain.
     Prioritizes splitting at headers, paragraphs, and lists.
@@ -68,8 +87,11 @@ def chunk_markdown(file_path: str, text: str, max_chunk_size: int = 2000
     return _process_splits(splitter, file_path, text)
 
 
-def chunk_python(file_path: str, text: str, max_chunk_size: int = 2000
-                 ) -> List[Tuple[MinimalSource, str]]:
+def chunk_python(
+    file_path: str,
+    text: str,
+    max_chunk_size: int = 2000,
+) -> List[ChunkedDocument]:
     """
     Wrapper for Python chunking using LangChain.
     Prioritizes splitting at classes and functions.
@@ -89,3 +111,37 @@ def chunk_python(file_path: str, text: str, max_chunk_size: int = 2000
         chunk_overlap=max_chunk_size // 10
     )
     return _process_splits(splitter, file_path, text)
+
+
+def chunk_file(
+    file_path: str,
+    text: str,
+    max_chunk_size: int = 2000,
+) -> List[ChunkedDocument]:
+    if file_path.endswith('.py'):
+        return chunk_python(file_path, text, max_chunk_size)
+    if file_path.endswith('.md') or file_path.endswith('.txt'):
+        return chunk_markdown(file_path, text, max_chunk_size)
+    return []
+
+
+def collect_chunked_documents(
+    raw_dir: str,
+    max_chunk_size: int = 2000,
+) -> List[ChunkedDocument]:
+    documents: List[ChunkedDocument] = []
+
+    for root, _, files in os.walk(raw_dir):
+        for file_name in files:
+            file_path = os.path.join(root, file_name)
+
+            try:
+                with open(file_path, 'r', encoding='utf-8') as file_handle:
+                    text = file_handle.read()
+            except Exception as exc:
+                logger.info(f"Error reading file {file_path}: {exc}")
+                continue
+
+            documents.extend(chunk_file(file_path, text, max_chunk_size))
+
+    return documents
