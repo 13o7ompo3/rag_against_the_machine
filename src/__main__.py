@@ -4,39 +4,65 @@ import json
 import uuid
 import os
 from tqdm import tqdm
-from src.indexer import build_index
-from src.retriever import BM25Retriever
+
 from src.evaluator import evaluate_results
+from src.search_index import SearchIndex
 from src.models import StudentSearchResults, RagDataset
 
-logging.basicConfig(level=logging.WARNING, format='%(levelname)s - %(message)s')
+logging.basicConfig(
+    level=logging.WARNING,
+    format='%(levelname)s - %(message)s',
+)
 
 
 class RagCLI:
     """Command-Line Interface for the RAG pipeline."""
 
-    def index(self, max_chunk_size: int = 2000) -> None:
-        """Ingest data/raw/ and build the index under data/processed/."""
+    def _make_index(self, backend: str) -> SearchIndex:
+        if backend == 'bm25':
+            from src.retriever import BM25Index
+            return BM25Index()
+        if backend == 'semantic':
+            from src.semantic import SemanticIndex
+            return SemanticIndex()
+        raise ValueError(f"Unsupported backend: {backend}")
 
-        logging.info(f"Running indexer with max_chunk_size={max_chunk_size}.")
-        build_index("data/raw/", "data/processed/", max_chunk_size)
+    def index(self, backend: str = 'bm25', max_chunk_size: int = 2000) -> None:
+        """Ingest data/raw/ and build an index under data/processed/."""
 
-    def search(self, query: str, k: int) -> None:
+        logging.info(
+            f"Running {backend} indexer with max_chunk_size={max_chunk_size}."
+        )
+        index = self._make_index(backend)
+        index.build_from_raw("data/raw/", "data/processed/", max_chunk_size)
+
+    def search(self, query: str, k: int, backend: str = 'bm25') -> None:
         """Return the top-k sources for a single query."""
-        logging.info(f"Searching for '{query}' returning top {k} results...")
+        logging.info(
+            f"Searching with {backend} for '{query}' "
+            f"returning top {k} results..."
+        )
         try:
-            retriever = BM25Retriever(processed_dir="data/processed")
+            index = self._make_index(backend)
+            index.load("data/processed/")
         except Exception as e:
-            logging.error(f"Failed to initialize BM25Retriever: {e}")
+            logging.error(f"Failed to initialize {backend} index: {e}")
             return
-        result = retriever.search_single(query,
-                                         question_id=str(uuid.uuid4()),
-                                         k=k)
+        result = index.search(
+            query,
+            k,
+            question_id=str(uuid.uuid4()),
+        )
 
         print(result.model_dump_json(indent=2))
 
-    def search_dataset(self, dataset_path: str,
-                       k: int, save_directory: str) -> None:
+    def search_dataset(
+        self,
+        dataset_path: str,
+        k: int,
+        save_directory: str,
+        backend: str = 'bm25',
+    ) -> None:
         """Run search over a whole dataset
         and write a StudentSearchResults JSON file.
 
@@ -45,13 +71,16 @@ class RagCLI:
             k: Number of top results to return for each query.
             save_directory: Directory to save the StudentSearchResults.
         """
-        logging.info(f"Batch searching dataset {dataset_path} (k={k}). "
-                     f"Saving to {save_directory}...")
+        logging.info(
+            f"Batch searching dataset {dataset_path} (k={k}, "
+            f"backend={backend}). Saving to {save_directory}..."
+        )
 
         try:
-            retriever = BM25Retriever(processed_dir="data/processed")
+            index = self._make_index(backend)
+            index.load("data/processed/")
         except Exception as e:
-            logging.error(f"Failed to initialize BM25Retriever: {e}")
+            logging.error(f"Failed to initialize {backend} index: {e}")
             return
 
         try:
@@ -67,7 +96,11 @@ class RagCLI:
         all_results = []
 
         for item in tqdm(dataset.rag_questions, desc=f"Searching top-{k}"):
-            res = retriever.search_single(item.question, item.question_id, k)
+            res = index.search(
+                item.question,
+                k,
+                question_id=item.question_id,
+            )
             all_results.append(res)
 
         final_output = StudentSearchResults(
@@ -90,22 +123,36 @@ class RagCLI:
 
     def answer(self, query: str, k: int) -> None:
         """Answer a single query using the retrieved context."""
-        logging.info(f"Answering query '{query}' using top {k} retrieved sources...")
+        logging.info(
+            f"Answering query '{query}' using top {k} retrieved sources..."
+        )
 
-    def answer_dataset(self, student_search_results_path: str, save_directory: str) -> None:
-        """Generate answers for a dataset, producing a StudentSearchResultsAndAnswer JSON file."""
-        logging.info(f"Generating answers for {student_search_results_path}. Saving to {save_directory}...")
+    def answer_dataset(
+        self,
+        student_search_results_path: str,
+        save_directory: str,
+    ) -> None:
+        """Generate answers for a dataset and save the answer file."""
+        logging.info(
+            f"Generating answers for {student_search_results_path}. "
+            f"Saving to {save_directory}..."
+        )
 
-    def evaluate(self, student_search_results_path: str,
-                 dataset_path: str) -> None:
+    def evaluate(
+        self,
+        student_search_results_path: str,
+        dataset_path: str,
+    ) -> None:
         """Report your own recall@k against a ground-truth dataset.
 
         Args:
             student_search_results_path: Path to the StudentSearchResults file.
             dataset_path: Path to the RagDataset JSON file.
         """
-        logging.info(f"Evaluating {student_search_results_path}"
-                     f" against ground truth {dataset_path}...")
+        logging.info(
+            f"Evaluating {student_search_results_path}"
+            f" against ground truth {dataset_path}..."
+        )
         evaluate_results(student_search_results_path, dataset_path)
 
 
