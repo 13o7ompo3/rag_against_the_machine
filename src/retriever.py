@@ -1,4 +1,5 @@
 import os
+import hmac
 import pickle
 import secrets
 from hashlib import sha512
@@ -50,22 +51,38 @@ class BM25Index(SearchIndex):
         if self.bm25 is None:
             raise RuntimeError("Cannot persist an empty index.")
 
-        bm25_bytes = pickle.dumps(self.bm25)
-        chunks_bytes = pickle.dumps(self.chunks)
-        key = secrets.token_bytes(32)
-        integrity_hash = sha512(key + bm25_bytes + chunks_bytes).hexdigest()
-        set_key('.env', 'KEY1', key.hex())
-        set_key('.env', 'HASH1', integrity_hash)
+        try:
+            bm25_bytes = pickle.dumps(self.bm25)
+            chunks_bytes = pickle.dumps(self.chunks)
+        except Exception:
+            raise RuntimeError("Failed to serialize BM25 index data.")
 
-        os.makedirs(processed_dir, exist_ok=True)
-        bm25_path = os.path.join(processed_dir, 'bm25_index.pkl')
-        chunks_path = os.path.join(processed_dir, 'chunks_metadata.pkl')
-        with (
-            open(bm25_path, 'wb') as f,
-            open(chunks_path, 'wb') as g,
-        ):
-            f.write(bm25_bytes)
-            g.write(chunks_bytes)
+        try:
+            key = secrets.token_bytes(32)
+            integrity_hash = hmac.new(
+                key,
+                bm25_bytes + chunks_bytes,
+                sha512,
+            ).hexdigest()
+            set_key('.env', 'KEY1', key.hex())
+            set_key('.env', 'HASH1', integrity_hash)
+        except Exception:
+            raise RuntimeError("Failed to write BM25 integrity metadata.")
+
+        try:
+            os.makedirs(processed_dir, exist_ok=True)
+            bm25_path = os.path.join(processed_dir, 'bm25_index.pkl')
+            chunks_path = os.path.join(processed_dir, 'chunks_metadata.pkl')
+            with (
+                open(bm25_path, 'wb') as f,
+                open(chunks_path, 'wb') as g,
+            ):
+                f.write(bm25_bytes)
+                g.write(chunks_bytes)
+        except OSError:
+            raise RuntimeError(
+                f"Failed to save BM25 index to '{processed_dir}'."
+            )
 
     def load(self, processed_dir: str) -> None:
         if not load_dotenv():
@@ -76,39 +93,55 @@ class BM25Index(SearchIndex):
 
         key = os.getenv('KEY1')
         if key is None:
-            raise ValueError("KEY environment variable is not set.")
+            raise ValueError("KEY1 environment variable is not set.")
 
         try:
             key_bytes = bytes.fromhex(key)
-            if len(key_bytes) != 32:
-                raise ValueError()
         except ValueError:
             raise ValueError(
-                "KEY environment variable is not a valid 32 byte hex string."
+                "KEY1 must be a valid 32-byte hex string."
             )
 
-        stored_hash = os.getenv('HASH1', '')
+        if len(key_bytes) != 32:
+            raise ValueError("KEY1 must decode to exactly 32 bytes.")
 
+        stored_hash = os.getenv('HASH1', '')
         bm25_path = os.path.join(processed_dir, 'bm25_index.pkl')
         chunks_path = os.path.join(processed_dir, 'chunks_metadata.pkl')
 
-        with (
-            open(bm25_path, 'rb') as f,
-            open(chunks_path, 'rb') as g,
-        ):
-            bm25_bytes = f.read()
-            chunks_bytes = g.read()
-            if (
-                sha512(key_bytes + bm25_bytes + chunks_bytes).hexdigest()
-                != stored_hash
+        try:
+            with (
+                open(bm25_path, 'rb') as f,
+                open(chunks_path, 'rb') as g,
             ):
-                raise ValueError(
-                    "Data integrity check failed. The data may have been "
-                    "tampered with."
-                )
+                bm25_bytes = f.read()
+                chunks_bytes = g.read()
+        except OSError:
+            raise RuntimeError(
+                f"Failed to read BM25 files from '{processed_dir}'."
+            )
 
+        try:
+            calculated_hash = hmac.new(
+                key_bytes,
+                bm25_bytes + chunks_bytes,
+                sha512,
+            ).hexdigest()
+            if not hmac.compare_digest(calculated_hash, stored_hash):
+                raise ValueError(
+                    "BM25 data integrity check failed. The index may have "
+                    "been tampered with."
+                )
+        except ValueError:
+            raise
+        except Exception:
+            raise RuntimeError("Failed to validate BM25 index integrity.")
+
+        try:
             self.bm25 = pickle.loads(bm25_bytes)
             self.chunks = pickle.loads(chunks_bytes)
+        except Exception:
+            raise RuntimeError("Failed to deserialize BM25 index data.")
 
     def search(
         self,
@@ -119,8 +152,13 @@ class BM25Index(SearchIndex):
         if self.bm25 is None:
             raise RuntimeError("Index not loaded.")
 
-        tokenized_query = tokenize(query)
-        scores = self.bm25.get_scores(tokenized_query)
+        try:
+            tokenized_query = tokenize(query)
+            scores = self.bm25.get_scores(tokenized_query)
+        except Exception:
+            raise RuntimeError(
+                f"Failed to compute BM25 scores for query: {query!r}."
+            )
 
         top_k_indices = np.argsort(scores)[-k:][::-1]
         retrieved_sources: List[MinimalSource] = [
