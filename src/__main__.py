@@ -25,6 +25,11 @@ class RagCLI:
         if backend == 'semantic':
             from src.semantic import SemanticIndex
             return SemanticIndex()
+        if backend == 'hybrid':
+            from src.hybrid import HybridIndex
+            from src.retriever import BM25Index
+            from src.semantic import SemanticIndex
+            return HybridIndex(BM25Index(), SemanticIndex())
         raise ValueError(f"Unsupported backend: {backend}")
 
     def index(self, backend: str = 'bm25', max_chunk_size: int = 2000) -> None:
@@ -33,8 +38,12 @@ class RagCLI:
         logging.info(
             f"Running {backend} indexer with max_chunk_size={max_chunk_size}."
         )
-        index = self._make_index(backend)
-        index.build_from_raw("data/raw/", "data/processed/", max_chunk_size)
+        try:
+            index = self._make_index(backend)
+            index.build_from_raw("data/raw/", "data/processed/",
+                                 max_chunk_size)
+        except Exception as e:
+            logging.error(f"Failed to build {backend} index: {e}")
 
     def search(self, query: str, k: int, backend: str = 'bm25') -> None:
         """Return the top-k sources for a single query."""
