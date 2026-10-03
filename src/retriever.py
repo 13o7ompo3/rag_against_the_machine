@@ -1,5 +1,5 @@
-import os
 import hmac
+import os
 import pickle
 import secrets
 from hashlib import sha512
@@ -9,18 +9,21 @@ import numpy as np
 from dotenv import load_dotenv, set_key
 
 from src.bm25 import BM25
-from src.chunker import collect_chunked_documents
+from src.chunker import collect_chunk_delta
 from src.models import MinimalSearchResults, MinimalSource
-from src.tokenizer import tokenize
 from src.search_index import SearchIndex
+from src.tokenizer import tokenize
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class BM25Index(SearchIndex):
     """BM25-backed search index with the same interface as semantic search."""
 
     def __init__(self, processed_dir: str | None = None):
+        super().__init__()
         self.bm25: BM25 | None = None
-        self.chunks: List[MinimalSource] = []
         self.processed_dir = processed_dir
 
         if processed_dir is not None:
@@ -32,19 +35,52 @@ class BM25Index(SearchIndex):
         processed_dir: str,
         max_chunk_size: int = 2000,
     ) -> None:
-        chunked_documents = collect_chunked_documents(raw_dir, max_chunk_size)
+        try:
+            self.load(processed_dir)
+        except Exception as e:
+            logger.info(f"Failed to load existing index: {e}."
+                        " Rebuilding the index.")
 
-        corpus = []
-        chunks: List[MinimalSource] = []
-        for chunk in chunked_documents:
+        deleted_file_paths, added_chunks, new_manifest = collect_chunk_delta(
+            raw_dir,
+            self.manifest,
+            max_chunk_size,
+        )
+
+        if deleted_file_paths and self.chunks_metadata:
+            deleted_set = set(deleted_file_paths)
+            deleted_indices = [
+                idx
+                for idx, chunk in enumerate(self.chunks_metadata)
+                if chunk.file_path in deleted_set
+            ]
+
+            if deleted_indices:
+                if self.bm25 is None:
+                    raise RuntimeError("Index not loaded.")
+
+                self.bm25.remove_documents(deleted_indices)
+
+                for idx in sorted(deleted_indices, reverse=True):
+                    self.chunks_metadata.pop(idx)
+
+        added_corpus: List[List[str]] = []
+        added_sources: List[MinimalSource] = []
+        for chunk in added_chunks:
             tokens = tokenize(chunk.text)
             if tokens:
-                corpus.append(tokens)
-                chunks.append(chunk.source)
+                added_corpus.append(tokens)
+                added_sources.append(chunk.source)
 
-        self.bm25 = BM25(corpus)
-        self.chunks = chunks
-        self.processed_dir = processed_dir
+        if added_corpus:
+            if self.bm25 is None:
+                self.bm25 = BM25(added_corpus)
+            else:
+                self.bm25.add_documents(added_corpus)
+
+            self.chunks_metadata.extend(added_sources)
+
+        self.manifest = new_manifest
         self.save(processed_dir)
 
     def save(self, processed_dir: str) -> None:
@@ -53,7 +89,8 @@ class BM25Index(SearchIndex):
 
         try:
             bm25_bytes = pickle.dumps(self.bm25)
-            chunks_bytes = pickle.dumps(self.chunks)
+            chunks_bytes = pickle.dumps(self.chunks_metadata)
+            manifest_bytes = pickle.dumps(self.manifest)
         except Exception:
             raise RuntimeError("Failed to serialize BM25 index data.")
 
@@ -61,7 +98,7 @@ class BM25Index(SearchIndex):
             key = secrets.token_bytes(32)
             integrity_hash = hmac.new(
                 key,
-                bm25_bytes + chunks_bytes,
+                bm25_bytes + chunks_bytes + manifest_bytes,
                 sha512,
             ).hexdigest()
             set_key('.env', 'KEY1', key.hex())
@@ -73,23 +110,33 @@ class BM25Index(SearchIndex):
             os.makedirs(processed_dir, exist_ok=True)
             bm25_path = os.path.join(processed_dir, 'bm25_index.pkl')
             chunks_path = os.path.join(processed_dir, 'chunks_metadata.pkl')
-            with (
-                open(bm25_path, 'wb') as f,
-                open(chunks_path, 'wb') as g,
-            ):
-                f.write(bm25_bytes)
-                g.write(chunks_bytes)
+            manifest_path = os.path.join(processed_dir, 'manifest.pkl')
+            with (open(bm25_path, 'wb') as bm25_handle,
+                 open(chunks_path, 'wb') as chunks_handle,
+                 open(manifest_path, 'wb') as manifest_handle):
+                bm25_handle.write(bm25_bytes)
+                chunks_handle.write(chunks_bytes)
+                manifest_handle.write(manifest_bytes)
         except OSError:
             raise RuntimeError(
                 f"Failed to save BM25 index to '{processed_dir}'."
             )
 
     def load(self, processed_dir: str) -> None:
-        if not load_dotenv():
-            raise EnvironmentError(
-                "Failed to load .env file. Please ensure it exists and is "
-                "readable."
+        bm25_path = os.path.join(processed_dir, 'bm25_index.pkl')
+        chunks_path = os.path.join(processed_dir, 'chunks_metadata.pkl')
+        manifest_path = os.path.join(processed_dir, 'manifest.pkl')
+
+        if not all(
+            os.path.exists(path)
+            for path in (bm25_path, chunks_path, manifest_path)
+        ):
+            raise RuntimeError(
+                f"BM25 index files not found in '{processed_dir}'."
             )
+
+        if not load_dotenv(override=True):
+            raise EnvironmentError("Failed to load .env file.")
 
         key = os.getenv('KEY1')
         if key is None:
@@ -106,16 +153,16 @@ class BM25Index(SearchIndex):
             raise ValueError("KEY1 must decode to exactly 32 bytes.")
 
         stored_hash = os.getenv('HASH1', '')
-        bm25_path = os.path.join(processed_dir, 'bm25_index.pkl')
-        chunks_path = os.path.join(processed_dir, 'chunks_metadata.pkl')
 
         try:
             with (
-                open(bm25_path, 'rb') as f,
-                open(chunks_path, 'rb') as g,
+                open(bm25_path, 'rb') as bm25_handle,
+                open(chunks_path, 'rb') as chunks_handle,
+                open(manifest_path, 'rb') as manifest_handle,
             ):
-                bm25_bytes = f.read()
-                chunks_bytes = g.read()
+                bm25_bytes = bm25_handle.read()
+                chunks_bytes = chunks_handle.read()
+                manifest_bytes = manifest_handle.read()
         except OSError:
             raise RuntimeError(
                 f"Failed to read BM25 files from '{processed_dir}'."
@@ -124,7 +171,7 @@ class BM25Index(SearchIndex):
         try:
             calculated_hash = hmac.new(
                 key_bytes,
-                bm25_bytes + chunks_bytes,
+                bm25_bytes + chunks_bytes + manifest_bytes,
                 sha512,
             ).hexdigest()
             if not hmac.compare_digest(calculated_hash, stored_hash):
@@ -139,7 +186,8 @@ class BM25Index(SearchIndex):
 
         try:
             self.bm25 = pickle.loads(bm25_bytes)
-            self.chunks = pickle.loads(chunks_bytes)
+            self.chunks_metadata = pickle.loads(chunks_bytes)
+            self.manifest = pickle.loads(manifest_bytes)
         except Exception:
             raise RuntimeError("Failed to deserialize BM25 index data.")
 
@@ -162,7 +210,7 @@ class BM25Index(SearchIndex):
 
         top_k_indices = np.argsort(scores)[-k:][::-1]
         retrieved_sources: List[MinimalSource] = [
-            self.chunks[i] for i in top_k_indices
+            self.chunks_metadata[i] for i in top_k_indices
         ]
 
         return MinimalSearchResults(
