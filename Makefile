@@ -1,13 +1,19 @@
 .PHONY: install run debug clean lint lint-strict
 
+CACHE_DIR := $(HOME)/goinfre/
+
+export HF_HOME := $(CACHE_DIR)/.cache/hf
+export UV_PROJECT_ENVIRONMENT := $(CACHE_DIR)/.venv
+export UV_CACHE_DIR := $(CACHE_DIR)/.cache/uv
+
 install:
 	uv sync
 
 run:
-	uv run python -m src
+	uv run python -m src $(ARGS)
 
 debug:
-	uv run python -m pdb -m src
+	uv run python -m pdb -m src $(ARGS)
 
 clean:
 	find . -type d -name "__pycache__" -exec rm -rf {} +
