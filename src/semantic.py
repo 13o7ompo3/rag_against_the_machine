@@ -1,5 +1,6 @@
-import os
 import hmac
+import logging
+import os
 import pickle
 import secrets
 from hashlib import sha512
@@ -10,18 +11,20 @@ import torch
 from dotenv import load_dotenv, set_key
 from sentence_transformers import SentenceTransformer, util
 
-from src.chunker import collect_chunked_documents
+from src.chunker import collect_chunk_delta
 from src.models import MinimalSearchResults, MinimalSource
 from src.search_index import SearchIndex
+
+logger = logging.getLogger(__name__)
 
 
 class SemanticIndex(SearchIndex):
     """A vector index built with a lightweight CPU model for embeddings."""
 
     def __init__(self, model_name: str = 'all-MiniLM-L6-v2'):
+        super().__init__()
         self.model = SentenceTransformer(model_name)
         self.embeddings: torch.Tensor | None = None
-        self.chunks_metadata: List[MinimalSource] = []
 
     def build_from_raw(
         self,
@@ -36,18 +39,55 @@ class SemanticIndex(SearchIndex):
             processed_dir: The directory where the indexing will be stored.
             max_chunk_size: The maximum size of each chunk.
         """
-        chunked_documents = collect_chunked_documents(raw_dir, max_chunk_size)
+        try:
+            self.load(processed_dir)
+        except Exception as e:
+            logger.info(f"Failed to load existing index: {e}."
+                        " Rebuilding the index.")
 
-        texts = [chunk.text for chunk in chunked_documents]
-        chunks = [chunk.source for chunk in chunked_documents]
-
-        self.chunks_metadata = chunks
-
-        self.embeddings = self.model.encode(
-            texts,
-            convert_to_tensor=True,
-            show_progress_bar=True,
+        deleted_file_paths, added_chunks, new_manifest = collect_chunk_delta(
+            raw_dir,
+            self.manifest,
+            max_chunk_size,
         )
+
+        if deleted_file_paths and self.chunks_metadata:
+            deleted_set = set(deleted_file_paths)
+            mask = [
+                chunk.file_path not in deleted_set
+                for chunk in self.chunks_metadata
+            ]
+
+            self.chunks_metadata = [
+                chunk
+                for chunk, keep in zip(self.chunks_metadata, mask)
+                if keep
+            ]
+
+            if self.embeddings is not None and self.embeddings.numel() > 0:
+                self.embeddings = self.embeddings[mask]
+
+        added_texts = [chunk.text for chunk in added_chunks if chunk.text]
+        added_sources = [chunk.source for chunk in added_chunks if chunk.text]
+
+        if added_texts:
+            added_embeddings = self.model.encode(
+                added_texts,
+                convert_to_tensor=True,
+                show_progress_bar=True,
+            )
+
+            if self.embeddings is None or self.embeddings.numel() == 0:
+                self.embeddings = added_embeddings
+            else:
+                self.embeddings = torch.cat(
+                    [self.embeddings, added_embeddings],
+                    dim=0,
+                )
+
+            self.chunks_metadata.extend(added_sources)
+
+        self.manifest = new_manifest
         self.save(processed_dir)
 
     def save(self, processed_dir: str) -> None:
@@ -60,6 +100,7 @@ class SemanticIndex(SearchIndex):
             torch.save(self.embeddings, embeddings_buffer)
             embeddings_bytes = embeddings_buffer.getvalue()
             metadata_bytes = pickle.dumps(self.chunks_metadata)
+            manifest_bytes = pickle.dumps(self.manifest)
         except Exception:
             raise RuntimeError("Failed to serialize semantic index data.")
 
@@ -67,7 +108,7 @@ class SemanticIndex(SearchIndex):
             key = secrets.token_bytes(32)
             integrity_hash = hmac.new(
                 key,
-                embeddings_bytes + metadata_bytes,
+                embeddings_bytes + metadata_bytes + manifest_bytes,
                 sha512,
             ).hexdigest()
             set_key('.env', 'KEY2', key.hex())
@@ -77,19 +118,19 @@ class SemanticIndex(SearchIndex):
 
         try:
             os.makedirs(processed_dir, exist_ok=True)
-            embeddings_path = os.path.join(
-                processed_dir,
-                'semantic_embeddings.pt',
-            )
-            with open(embeddings_path, 'wb') as file_handle:
-                file_handle.write(embeddings_bytes)
-
+            tensor_path = os.path.join(
+                processed_dir, 'semantic_embeddings.pt')
             metadata_path = os.path.join(
-                processed_dir,
-                'semantic_metadata.pkl',
-            )
-            with open(metadata_path, 'wb') as file_handle:
-                file_handle.write(metadata_bytes)
+                processed_dir, 'semantic_metadata.pkl')
+            manifest_path = os.path.join(
+                processed_dir, 'semantic_manifest.pkl')
+
+            with (open(tensor_path, 'wb') as tensor_handle,
+                 open(metadata_path, 'wb') as metadata_handle,
+                 open(manifest_path, 'wb') as manifest_handle):
+                tensor_handle.write(embeddings_bytes)
+                metadata_handle.write(metadata_bytes)
+                manifest_handle.write(manifest_bytes)
         except OSError:
             raise RuntimeError(
                 f"Failed to save semantic index to '{processed_dir}'."
@@ -99,8 +140,15 @@ class SemanticIndex(SearchIndex):
         """Load the serialized embeddings and metadata from disk."""
         tensor_path = os.path.join(processed_dir, 'semantic_embeddings.pt')
         metadata_path = os.path.join(processed_dir, 'semantic_metadata.pkl')
+        manifest_path = os.path.join(processed_dir, 'semantic_manifest.pkl')
 
-        if not load_dotenv():
+        if not all(os.path.exists(path)
+                   for path in (tensor_path, metadata_path, manifest_path)):
+            raise RuntimeError(
+                f"Semantic index files not found in '{processed_dir}'."
+            )
+
+        if not load_dotenv(override=True):
             raise EnvironmentError("Failed to load .env file.")
 
         key = os.getenv('KEY2')
@@ -122,6 +170,8 @@ class SemanticIndex(SearchIndex):
                 embeddings_bytes = file_handle.read()
             with open(metadata_path, 'rb') as file_handle:
                 metadata_bytes = file_handle.read()
+            with open(manifest_path, 'rb') as file_handle:
+                manifest_bytes = file_handle.read()
         except OSError:
             raise RuntimeError(
                 f"Failed to read semantic files from '{processed_dir}'."
@@ -130,7 +180,7 @@ class SemanticIndex(SearchIndex):
         try:
             calculated_hash = hmac.new(
                 key_bytes,
-                embeddings_bytes + metadata_bytes,
+                embeddings_bytes + metadata_bytes + manifest_bytes,
                 sha512,
             ).hexdigest()
             if not hmac.compare_digest(calculated_hash, stored_hash):
@@ -149,6 +199,7 @@ class SemanticIndex(SearchIndex):
                 map_location='cpu',
             )
             self.chunks_metadata = pickle.loads(metadata_bytes)
+            self.manifest = pickle.loads(manifest_bytes)
         except Exception:
             raise RuntimeError("Failed to deserialize semantic index data.")
 
