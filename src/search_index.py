@@ -1,10 +1,14 @@
 from abc import ABC, abstractmethod
 
-from src.models import MinimalSearchResults
+from src.models import MinimalSearchResults, MinimalSource
 
 
 class SearchIndex(ABC):
     """Common interface for searchable index backends."""
+
+    def __init__(self) -> None:
+        self.chunks_metadata: list[MinimalSource] = []
+        self.manifest: dict[str, str] = {}
 
     @abstractmethod
     def build_from_raw(
