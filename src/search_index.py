@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 
-from src.models import MinimalSearchResults, MinimalSource
+from .models import MinimalSearchResults, MinimalSource
 
 
 class SearchIndex(ABC):
@@ -9,6 +9,7 @@ class SearchIndex(ABC):
     def __init__(self) -> None:
         self.chunks_metadata: list[MinimalSource] = []
         self.manifest: dict[str, str] = {}
+        self.max_chunk_size: int = 2000
 
     @abstractmethod
     def build_from_raw(

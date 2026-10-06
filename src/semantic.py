@@ -11,9 +11,9 @@ import torch
 from dotenv import load_dotenv, set_key
 from sentence_transformers import SentenceTransformer, util
 
-from src.chunker import collect_chunk_delta
-from src.models import MinimalSearchResults, MinimalSource
-from src.search_index import SearchIndex
+from .chunker import collect_chunk_delta
+from .models import MinimalSearchResults, MinimalSource
+from .search_index import SearchIndex
 
 logger = logging.getLogger(__name__)
 
@@ -41,9 +41,15 @@ class SemanticIndex(SearchIndex):
         """
         try:
             self.load(processed_dir)
+            if self.max_chunk_size != max_chunk_size:
+                raise ValueError("max_chunk_size changed")
         except Exception as e:
             logger.info(f"Failed to load existing index: {e}."
                         " Rebuilding the index.")
+            self.embeddings = None
+            self.chunks_metadata: list[MinimalSource] = []
+            self.manifest: dict[str, str] = {}
+            self.max_chunk_size = max_chunk_size
 
         deleted_file_paths, added_chunks, new_manifest = collect_chunk_delta(
             raw_dir,
@@ -101,6 +107,7 @@ class SemanticIndex(SearchIndex):
             embeddings_bytes = embeddings_buffer.getvalue()
             metadata_bytes = pickle.dumps(self.chunks_metadata)
             manifest_bytes = pickle.dumps(self.manifest)
+            max_chunk_size_bytes = pickle.dumps(self.max_chunk_size)
         except Exception:
             raise RuntimeError("Failed to serialize semantic index data.")
 
@@ -108,7 +115,7 @@ class SemanticIndex(SearchIndex):
             key = secrets.token_bytes(32)
             integrity_hash = hmac.new(
                 key,
-                embeddings_bytes + metadata_bytes + manifest_bytes,
+                embeddings_bytes + metadata_bytes + manifest_bytes + max_chunk_size_bytes,
                 sha512,
             ).hexdigest()
             set_key('.env', 'KEY2', key.hex())
@@ -124,13 +131,17 @@ class SemanticIndex(SearchIndex):
                 processed_dir, 'semantic_metadata.pkl')
             manifest_path = os.path.join(
                 processed_dir, 'semantic_manifest.pkl')
+            max_chunk_size_path = os.path.join(
+                processed_dir, 'semantic_max_chunk_size.pkl')
 
             with (open(tensor_path, 'wb') as tensor_handle,
                  open(metadata_path, 'wb') as metadata_handle,
-                 open(manifest_path, 'wb') as manifest_handle):
+                 open(manifest_path, 'wb') as manifest_handle,
+                 open(max_chunk_size_path, 'wb') as max_chunk_size_handle):
                 tensor_handle.write(embeddings_bytes)
                 metadata_handle.write(metadata_bytes)
                 manifest_handle.write(manifest_bytes)
+                max_chunk_size_handle.write(max_chunk_size_bytes)
         except OSError:
             raise RuntimeError(
                 f"Failed to save semantic index to '{processed_dir}'."
@@ -141,9 +152,10 @@ class SemanticIndex(SearchIndex):
         tensor_path = os.path.join(processed_dir, 'semantic_embeddings.pt')
         metadata_path = os.path.join(processed_dir, 'semantic_metadata.pkl')
         manifest_path = os.path.join(processed_dir, 'semantic_manifest.pkl')
+        max_chunk_size_path = os.path.join(processed_dir, 'semantic_max_chunk_size.pkl')
 
         if not all(os.path.exists(path)
-                   for path in (tensor_path, metadata_path, manifest_path)):
+                   for path in (tensor_path, metadata_path, manifest_path, max_chunk_size_path)):
             raise RuntimeError(
                 f"Semantic index files not found in '{processed_dir}'."
             )
@@ -172,6 +184,8 @@ class SemanticIndex(SearchIndex):
                 metadata_bytes = file_handle.read()
             with open(manifest_path, 'rb') as file_handle:
                 manifest_bytes = file_handle.read()
+            with open(max_chunk_size_path, 'rb') as file_handle:
+                max_chunk_size_bytes = file_handle.read()
         except OSError:
             raise RuntimeError(
                 f"Failed to read semantic files from '{processed_dir}'."
@@ -180,7 +194,7 @@ class SemanticIndex(SearchIndex):
         try:
             calculated_hash = hmac.new(
                 key_bytes,
-                embeddings_bytes + metadata_bytes + manifest_bytes,
+                embeddings_bytes + metadata_bytes + manifest_bytes + max_chunk_size_bytes,
                 sha512,
             ).hexdigest()
             if not hmac.compare_digest(calculated_hash, stored_hash):
@@ -200,6 +214,7 @@ class SemanticIndex(SearchIndex):
             )
             self.chunks_metadata = pickle.loads(metadata_bytes)
             self.manifest = pickle.loads(manifest_bytes)
+            self.max_chunk_size = pickle.loads(max_chunk_size_bytes)
         except Exception:
             raise RuntimeError("Failed to deserialize semantic index data.")
 
