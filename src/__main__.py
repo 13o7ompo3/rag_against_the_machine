@@ -5,9 +5,9 @@ import uuid
 import os
 from tqdm import tqdm
 
-from src.evaluator import evaluate_results
-from src.search_index import SearchIndex
-from src.models import StudentSearchResults, RagDataset
+from .evaluator import evaluate_results
+from .search_index import SearchIndex
+from .models import StudentSearchResults, RagDataset
 
 logging.basicConfig(
     level=logging.WARNING,
@@ -20,15 +20,15 @@ class RagCLI:
 
     def _make_index(self, backend: str) -> SearchIndex:
         if backend == 'bm25':
-            from src.retriever import BM25Index
+            from .retriever import BM25Index
             return BM25Index()
         if backend == 'semantic':
-            from src.semantic import SemanticIndex
+            from .semantic import SemanticIndex
             return SemanticIndex()
         if backend == 'hybrid':
-            from src.hybrid import HybridIndex
-            from src.retriever import BM25Index
-            from src.semantic import SemanticIndex
+            from .hybrid import HybridIndex
+            from .retriever import BM25Index
+            from .semantic import SemanticIndex
             return HybridIndex(BM25Index(), SemanticIndex())
         raise ValueError(f"Unsupported backend: {backend}")
 
@@ -62,7 +62,7 @@ class RagCLI:
             k,
             question_id=str(uuid.uuid4()),
         )
-
+        index._save_cache()
         print(result.model_dump_json(indent=2))
 
     def search_dataset(
@@ -111,7 +111,7 @@ class RagCLI:
                 question_id=item.question_id,
             )
             all_results.append(res)
-
+        index._save_cache()
         final_output = StudentSearchResults(
             search_results=all_results,
             k=k
