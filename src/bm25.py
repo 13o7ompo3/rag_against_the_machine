@@ -23,16 +23,15 @@ class BM25:
         self.k1 = k1
         self.b = b
 
-        self.corpus = [list(doc) for doc in corpus]
-        self.doc_lens = [len(doc) for doc in self.corpus]
-        self.doc_freqs = [Counter(doc) for doc in self.corpus]
+        self.doc_lens = [len(doc) for doc in corpus]
+        self.doc_freqs = [Counter(doc) for doc in corpus]
         self.total_doc_len = sum(self.doc_lens)
-        self.corpus_size = len(self.corpus)
+        self.corpus_size = len(corpus)
 
         self.nd: Counter = Counter()
         self.idf: Dict[str, float] = {}
 
-        for doc in tqdm(self.corpus, desc="Word counting for IDF calculation"):
+        for doc in tqdm(corpus, desc="Word counting for IDF calculation"):
             for word in set(doc):
                 self.nd[word] += 1
 
@@ -60,14 +59,13 @@ class BM25:
             return
 
         for idx in sorted(set(indices), reverse=True):
-            doc = self.corpus.pop(idx)
             doc_len = self.doc_lens.pop(idx)
-            self.doc_freqs.pop(idx)
+            doc_freq = self.doc_freqs.pop(idx)
 
             self.total_doc_len -= doc_len
             self.corpus_size -= 1
 
-            for word in set(doc):
+            for word in doc_freq.keys():
                 self.nd[word] -= 1
                 if self.nd[word] <= 0:
                     del self.nd[word]
@@ -85,18 +83,16 @@ class BM25:
             return
 
         for doc in documents:
-            doc_copy = list(doc)
-            doc_len = len(doc_copy)
-            doc_freq = Counter(doc_copy)
+            doc_len = len(doc)
+            doc_freq = Counter(doc)
 
-            self.corpus.append(doc_copy)
             self.doc_lens.append(doc_len)
             self.doc_freqs.append(doc_freq)
 
             self.total_doc_len += doc_len
             self.corpus_size += 1
 
-            for word in set(doc_copy):
+            for word in set(doc):
                 self.nd[word] += 1
 
         self._rebuild_idf()
