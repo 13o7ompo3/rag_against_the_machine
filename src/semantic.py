@@ -25,6 +25,7 @@ class SemanticIndex(SearchIndex):
         super().__init__()
         self.model = SentenceTransformer(model_name)
         self.embeddings: torch.Tensor | None = None
+        self.env_key_name = 'KEY2'
 
     def build_from_raw(
         self,
@@ -50,6 +51,7 @@ class SemanticIndex(SearchIndex):
             self.chunks_metadata: list[MinimalSource] = []
             self.manifest: dict[str, str] = {}
             self.max_chunk_size = max_chunk_size
+            self.query_cache.clear()
 
         deleted_file_paths, added_chunks, new_manifest = collect_chunk_delta(
             raw_dir,
@@ -93,8 +95,10 @@ class SemanticIndex(SearchIndex):
 
             self.chunks_metadata.extend(added_sources)
 
-        self.manifest = new_manifest
-        self.save(processed_dir)
+        if deleted_file_paths or added_chunks:
+            self.manifest = new_manifest
+            self.query_cache.clear()
+            self.save(processed_dir)
 
     def save(self, processed_dir: str) -> None:
         """Serialize embeddings and metadata to disk."""
@@ -217,6 +221,9 @@ class SemanticIndex(SearchIndex):
             self.max_chunk_size = pickle.loads(max_chunk_size_bytes)
         except Exception:
             raise RuntimeError("Failed to deserialize semantic index data.")
+        
+        self.processed_dir = processed_dir
+        self._load_cache()
 
     def search(
         self,
@@ -226,6 +233,15 @@ class SemanticIndex(SearchIndex):
     ) -> MinimalSearchResults:
         if self.embeddings is None:
             raise RuntimeError("Index not loaded.")
+
+        cache_key = (query, k)
+        if cache_key in self.query_cache:
+            retrieved_sources = self.query_cache[cache_key]
+            return MinimalSearchResults(
+                question_id=question_id,
+                question=query,
+                retrieved_sources=retrieved_sources,
+            )
 
         if len(self.chunks_metadata) == 0:
             return MinimalSearchResults(
@@ -252,6 +268,7 @@ class SemanticIndex(SearchIndex):
         for _, idx in zip(top_results.values, top_results.indices):
             retrieved_sources.append(self.chunks_metadata[int(idx)])
 
+        self.query_cache[(query, k)] = retrieved_sources
         return MinimalSearchResults(
             question_id=question_id,
             question=query,

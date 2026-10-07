@@ -25,6 +25,7 @@ class BM25Index(SearchIndex):
         super().__init__()
         self.bm25: BM25 | None = None
         self.processed_dir = processed_dir
+        self.env_key_name = 'KEY1'
 
     def build_from_raw(
         self,
@@ -43,6 +44,7 @@ class BM25Index(SearchIndex):
             self.chunks_metadata: list[MinimalSource] = []
             self.manifest: dict[str, str] = {}
             self.max_chunk_size = max_chunk_size
+            self.query_cache.clear()
 
         deleted_file_paths, added_chunks, new_manifest = collect_chunk_delta(
             raw_dir,
@@ -83,8 +85,10 @@ class BM25Index(SearchIndex):
 
             self.chunks_metadata.extend(added_sources)
 
-        self.manifest = new_manifest
-        self.save(processed_dir)
+        if deleted_file_paths or added_corpus:
+            self.manifest = new_manifest
+            self.query_cache.clear()
+            self.save(processed_dir)
 
     def save(self, processed_dir: str) -> None:
         if self.bm25 is None:
@@ -201,6 +205,9 @@ class BM25Index(SearchIndex):
             self.max_chunk_size = pickle.loads(max_chunk_size_bytes)
         except Exception:
             raise RuntimeError("Failed to deserialize BM25 index data.")
+        
+        self.processed_dir = processed_dir
+        self._load_cache()
 
     def search(
         self,
@@ -210,6 +217,15 @@ class BM25Index(SearchIndex):
     ) -> MinimalSearchResults:
         if self.bm25 is None:
             raise RuntimeError("Index not loaded.")
+        
+        cache_key = (query, k)
+        if cache_key in self.query_cache:
+            retrieved_sources = self.query_cache[cache_key]
+            return MinimalSearchResults(
+                question_id=question_id,
+                question=query,
+                retrieved_sources=retrieved_sources,
+            )
 
         try:
             tokenized_query = tokenize(query)
@@ -224,6 +240,7 @@ class BM25Index(SearchIndex):
             self.chunks_metadata[i] for i in top_k_indices
         ]
 
+        self.query_cache[(query, k)] = retrieved_sources
         return MinimalSearchResults(
             question_id=question_id,
             question=query,
