@@ -3,7 +3,7 @@ import hashlib
 from dataclasses import dataclass
 from typing import Dict, List
 from langchain_text_splitters import RecursiveCharacterTextSplitter, Language
-from src.models import MinimalSource
+from .models import MinimalSource
 import logging
 
 
@@ -113,7 +113,8 @@ def chunk_markdown(
     splitter = RecursiveCharacterTextSplitter.from_language(
         language=Language.MARKDOWN,
         chunk_size=max_chunk_size,
-        chunk_overlap=max_chunk_size // 10
+        chunk_overlap=(max_chunk_size // 10) * 3,
+        strip_whitespace=False,
     )
     return _process_splits(splitter, file_path, text)
 
@@ -139,7 +140,8 @@ def chunk_python(
     splitter = RecursiveCharacterTextSplitter.from_language(
         language=Language.PYTHON,
         chunk_size=max_chunk_size,
-        chunk_overlap=max_chunk_size // 10
+        chunk_overlap=(max_chunk_size // 10) * 3,
+        strip_whitespace=False,
     )
     return _process_splits(splitter, file_path, text)
 
@@ -172,6 +174,9 @@ def collect_chunk_delta(
         A tuple containing the list of deleted file paths,
         the list of added chunks, and the new manifest.
     """
+
+    if not os.path.isdir(raw_dir):
+        raise FileNotFoundError(f"Raw directory does not exist: {raw_dir}")
 
     previous_manifest = old_manifest or {}
     new_manifest: Dict[str, str] = {}
