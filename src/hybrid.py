@@ -1,5 +1,5 @@
-from src.search_index import SearchIndex
-from src.models import MinimalSearchResults, MinimalSource
+from .search_index import SearchIndex
+from .models import MinimalSearchResults, MinimalSource
 
 
 class HybridIndex(SearchIndex):
@@ -80,7 +80,7 @@ class HybridIndex(SearchIndex):
         return MinimalSearchResults(
             question_id=question_id,
             question=query,
-            retrieved_sources=merged[:k],
+            retrieved_sources=merged[:k],  # type: ignore[arg-type]
         )
 
 
@@ -127,12 +127,18 @@ def merge_by_weighted_rank(list1: list[Source], list2: list[Source],
     """
     unique_items = list(set(list1) | set(list2))
 
-    def calculate_score(item):
+    def calculate_score(item: Source) -> float:
         score = 0.0
         if item in list1:
             score += list1.index(item) * weight1
+        else:
+            score += len(list1) * weight1
+
         if item in list2:
             score += list2.index(item) * weight2
+        else:
+            score += len(list2) * weight2
+
         return score
 
     return sorted(unique_items, key=calculate_score)
