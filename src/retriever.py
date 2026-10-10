@@ -103,6 +103,30 @@ class BM25Index(SearchIndex):
             raise RuntimeError("Failed to serialize BM25 index data.")
 
         try:
+            os.makedirs(processed_dir, exist_ok=True)
+            bm25_path = os.path.join(processed_dir, 'bm25_index.pkl')
+            chunks_path = os.path.join(processed_dir, 'chunks_metadata.pkl')
+            manifest_path = os.path.join(processed_dir, 'manifest.pkl')
+            max_chunk_size_path = os.path.join(processed_dir, 'max_chunk_size.pkl')
+            with (open(bm25_path + '.tmp', 'wb') as bm25_handle,
+                 open(chunks_path + '.tmp', 'wb') as chunks_handle,
+                 open(manifest_path + '.tmp', 'wb') as manifest_handle,
+                 open(max_chunk_size_path + '.tmp', 'wb') as max_chunk_size_handle):
+                bm25_handle.write(bm25_bytes)
+                chunks_handle.write(chunks_bytes)
+                manifest_handle.write(manifest_bytes)
+                max_chunk_size_handle.write(max_chunk_size_bytes)
+
+            os.replace(bm25_path + '.tmp', bm25_path)
+            os.replace(chunks_path + '.tmp', chunks_path)
+            os.replace(manifest_path + '.tmp', manifest_path)
+            os.replace(max_chunk_size_path + '.tmp', max_chunk_size_path)
+        except OSError:
+            raise RuntimeError(
+                f"Failed to save BM25 index to '{processed_dir}'."
+            )
+
+        try:
             key = secrets.token_bytes(32)
             integrity_hash = hmac.new(
                 key,
@@ -113,25 +137,7 @@ class BM25Index(SearchIndex):
             set_key('.env', 'HASH1', integrity_hash)
         except Exception:
             raise RuntimeError("Failed to write BM25 integrity metadata.")
-
-        try:
-            os.makedirs(processed_dir, exist_ok=True)
-            bm25_path = os.path.join(processed_dir, 'bm25_index.pkl')
-            chunks_path = os.path.join(processed_dir, 'chunks_metadata.pkl')
-            manifest_path = os.path.join(processed_dir, 'manifest.pkl')
-            max_chunk_size_path = os.path.join(processed_dir, 'max_chunk_size.pkl')
-            with (open(bm25_path, 'wb') as bm25_handle,
-                 open(chunks_path, 'wb') as chunks_handle,
-                 open(manifest_path, 'wb') as manifest_handle,
-                 open(max_chunk_size_path, 'wb') as max_chunk_size_handle):
-                bm25_handle.write(bm25_bytes)
-                chunks_handle.write(chunks_bytes)
-                manifest_handle.write(manifest_bytes)
-                max_chunk_size_handle.write(max_chunk_size_bytes)
-        except OSError:
-            raise RuntimeError(
-                f"Failed to save BM25 index to '{processed_dir}'."
-            )
+        self._save_cache()
 
     def load(self, processed_dir: str) -> None:
         bm25_path = os.path.join(processed_dir, 'bm25_index.pkl')
