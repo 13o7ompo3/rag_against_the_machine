@@ -7,7 +7,7 @@ from tqdm import tqdm
 
 from .evaluator import evaluate_results
 from .search_index import SearchIndex
-from .models import StudentSearchResults, RagDataset
+from .models import StudentSearchResults, RagDataset, MinimalSearchResults
 
 logging.basicConfig(
     level=logging.WARNING,
@@ -105,12 +105,23 @@ class RagCLI:
         all_results = []
 
         for item in tqdm(dataset.rag_questions, desc=f"Searching top-{k}"):
-            res = index.search(
-                item.question,
-                k,
-                question_id=item.question_id,
-            )
-            all_results.append(res)
+            try:
+                res = index.search(
+                    item.question,
+                    k,
+                    question_id=item.question_id,
+                )
+                all_results.append(res)
+            except Exception as e:
+                logging.warning(
+                    f"Search failed for question_id {item.question_id}: {e}. "
+                    "Appending empty results."
+                )
+                all_results.append(MinimalSearchResults(
+                    question_id=item.question_id,
+                    question=item.question,
+                    retrieved_sources=[]
+                ))
         index._save_cache()
         final_output = StudentSearchResults(
             search_results=all_results,
