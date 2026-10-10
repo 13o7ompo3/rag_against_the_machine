@@ -116,18 +116,6 @@ class SemanticIndex(SearchIndex):
             raise RuntimeError("Failed to serialize semantic index data.")
 
         try:
-            key = secrets.token_bytes(32)
-            integrity_hash = hmac.new(
-                key,
-                embeddings_bytes + metadata_bytes + manifest_bytes + max_chunk_size_bytes,
-                sha512,
-            ).hexdigest()
-            set_key('.env', 'KEY2', key.hex())
-            set_key('.env', 'HASH2', integrity_hash)
-        except Exception:
-            raise RuntimeError("Failed to write semantic integrity metadata.")
-
-        try:
             os.makedirs(processed_dir, exist_ok=True)
             tensor_path = os.path.join(
                 processed_dir, 'semantic_embeddings.pt')
@@ -138,18 +126,36 @@ class SemanticIndex(SearchIndex):
             max_chunk_size_path = os.path.join(
                 processed_dir, 'semantic_max_chunk_size.pkl')
 
-            with (open(tensor_path, 'wb') as tensor_handle,
-                 open(metadata_path, 'wb') as metadata_handle,
-                 open(manifest_path, 'wb') as manifest_handle,
-                 open(max_chunk_size_path, 'wb') as max_chunk_size_handle):
+            with (open(tensor_path + '.tmp', 'wb') as tensor_handle,
+                 open(metadata_path + '.tmp', 'wb') as metadata_handle,
+                 open(manifest_path + '.tmp', 'wb') as manifest_handle,
+                 open(max_chunk_size_path + '.tmp', 'wb') as max_chunk_size_handle):
                 tensor_handle.write(embeddings_bytes)
                 metadata_handle.write(metadata_bytes)
                 manifest_handle.write(manifest_bytes)
                 max_chunk_size_handle.write(max_chunk_size_bytes)
+
+            os.replace(tensor_path + '.tmp', tensor_path)
+            os.replace(metadata_path + '.tmp', metadata_path)
+            os.replace(manifest_path + '.tmp', manifest_path)
+            os.replace(max_chunk_size_path + '.tmp', max_chunk_size_path)
         except OSError:
             raise RuntimeError(
                 f"Failed to save semantic index to '{processed_dir}'."
             )
+
+        try:
+            key = secrets.token_bytes(32)
+            integrity_hash = hmac.new(
+                key,
+                embeddings_bytes + metadata_bytes + manifest_bytes + max_chunk_size_bytes,
+                sha512,
+            ).hexdigest()
+            set_key('.env', 'KEY2', key.hex())
+            set_key('.env', 'HASH2', integrity_hash)
+        except Exception:
+            raise RuntimeError("Failed to write semantic integrity metadata.")
+        self._save_cache()
 
     def load(self, processed_dir: str) -> None:
         """Load the serialized embeddings and metadata from disk."""
