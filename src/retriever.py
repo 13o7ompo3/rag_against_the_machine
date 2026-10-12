@@ -65,6 +65,8 @@ class BM25Index(SearchIndex):
                     raise RuntimeError("Index not loaded.")
 
                 self.bm25.remove_documents(deleted_indices)
+                if not added_chunks:
+                    self.bm25._rebuild_idf()
 
                 for idx in sorted(deleted_indices, reverse=True):
                     self.chunks_metadata.pop(idx)
@@ -82,6 +84,7 @@ class BM25Index(SearchIndex):
                 self.bm25 = BM25(added_corpus)
             else:
                 self.bm25.add_documents(added_corpus)
+                self.bm25._rebuild_idf()
 
             self.chunks_metadata.extend(added_sources)
 

@@ -70,8 +70,6 @@ class BM25:
                 if self.nd[word] <= 0:
                     del self.nd[word]
 
-        self._rebuild_idf()
-
     def add_documents(self, documents: List[List[str]]) -> None:
         """Adds documents to the corpus.
 
@@ -94,8 +92,6 @@ class BM25:
 
             for word in set(doc):
                 self.nd[word] += 1
-
-        self._rebuild_idf()
 
     def get_scores(self, query: List[str]) -> List[float]:
         """Returns the BM25 score for every document given a query.
