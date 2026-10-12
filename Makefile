@@ -27,3 +27,17 @@ lint:
 lint-strict:
 	uv run flake8 src/
 	uv run mypy --strict src/
+
+test:
+	uv run python3 -m src search_dataset data/datasets/public/AnsweredQuestions/dataset_code_public.json 10 . $(ARGS) >/dev/null 2>&1
+	uv run python3 -m src search_dataset data/datasets/public/AnsweredQuestions/dataset_docs_public.json 10 . $(ARGS) >/dev/null 2>&1
+	uv run python3 -m src search_dataset data/datasets/private/AnsweredQuestions/dataset_code_private.json 10 . $(ARGS) >/dev/null 2>&1
+	uv run python3 -m src search_dataset data/datasets/private/AnsweredQuestions/dataset_docs_private.json 10 . $(ARGS) >/dev/null 2>&1
+	@echo -e '\n'
+	uv run python3 -m src evaluate dataset_code_public.json data/datasets/public/AnsweredQuestions/dataset_code_public.json
+	@echo -e '\n'
+	uv run python3 -m src evaluate dataset_docs_public.json data/datasets/public/AnsweredQuestions/dataset_docs_public.json
+	@echo -e '\n'
+	uv run python3 -m src evaluate dataset_code_private.json data/datasets/private/AnsweredQuestions/dataset_code_private.json
+	@echo -e '\n'
+	uv run python3 -m src evaluate dataset_docs_private.json data/datasets/private/AnsweredQuestions/dataset_docs_private.json
