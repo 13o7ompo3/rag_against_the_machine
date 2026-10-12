@@ -15,6 +15,11 @@ class HybridIndex(SearchIndex):
         self.bm25_index = bm25_index
         self.semantic_index = semantic_index
 
+    def _save_cache(self) -> None:
+        """Save the query cache for both BM25 and semantic indices."""
+        self.bm25_index._save_cache()
+        self.semantic_index._save_cache()
+
     def build_from_raw(
         self,
         raw_dir: str,
@@ -66,8 +71,8 @@ class HybridIndex(SearchIndex):
         Returns:
             MinimalSearchResults: The search results.
         """
-        bm25_results = self.bm25_index.search(query, k, question_id)
-        semantic_results = self.semantic_index.search(query, k, question_id)
+        bm25_results = self.bm25_index.search(query, 3 * k, question_id)
+        semantic_results = self.semantic_index.search(query, 3 * k, question_id)
 
         bm25_sources = [Source(**x.model_dump())
                         for x in bm25_results.retrieved_sources]
@@ -75,7 +80,7 @@ class HybridIndex(SearchIndex):
                             for x in semantic_results.retrieved_sources]
 
         merged = merge_by_weighted_rank(bm25_sources, semantic_sources,
-                                        1.0, 1.0)
+                                        1.5, 1.0)
 
         return MinimalSearchResults(
             question_id=question_id,
