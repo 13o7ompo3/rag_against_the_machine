@@ -57,12 +57,16 @@ class RagCLI:
         except Exception as e:
             logging.error(f"Failed to initialize {backend} index: {e}")
             return
-        result = index.search(
-            query,
-            k,
-            question_id=str(uuid.uuid4()),
-        )
-        index._save_cache()
+        try:
+            result = index.search(
+                query,
+                k,
+                question_id=str(uuid.uuid4()),
+            )
+            index._save_cache()
+        except Exception as e:
+            logging.error(f"Failed query '{query}': {e}")
+            return
         print(result.model_dump_json(indent=2))
 
     def search_dataset(
@@ -141,11 +145,42 @@ class RagCLI:
 
         print(f"Saved student_search_results to {save_path}")
 
-    def answer(self, query: str, k: int) -> None:
+    def answer(self, query: str, k: int = 5, backend: str = 'bm25') -> None:
         """Answer a single query using the retrieved context."""
         logging.info(
             f"Answering query '{query}' using top {k} retrieved sources..."
         )
+        try:
+            index = self._make_index(backend)
+            index.load("data/processed/")
+            search_res = index.search(
+                query,
+                k,
+                question_id=str(uuid.uuid4()),
+            )
+            index._save_cache()
+        except Exception as e:
+            logging.error(f"Failed during retrieval with {backend}: {e}")
+            return
+
+        try:
+            from .generator import AnswerGenerator
+            from .models import MinimalAnswer
+
+            generator = AnswerGenerator(max_new_tokens=1000)
+            generated_text = generator.generate_answer(
+                query,
+                search_res.retrieved_sources,
+            )
+            final_answer = MinimalAnswer(
+                question_id=search_res.question_id,
+                question=search_res.question,
+                retrieved_sources=search_res.retrieved_sources,
+                answer=generated_text,
+            )
+            print(final_answer.model_dump_json(indent=2))
+        except Exception as e:
+            logging.error(f"Failed to generate answer: {e}")
 
     def answer_dataset(
         self,
