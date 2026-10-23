@@ -37,11 +37,13 @@ def tokenize(text: str) -> list[str]:
     Args:
         text (str): The input text to be tokenized.
     """
-    text = re.sub(r'([a-z])([A-Z])', r'\1 \2', text)
-
     text = text.lower()
 
-    text = re.sub(r'[^a-z0-9]', ' ', text)
+    text = re.sub(r'[^a-z0-9_]', ' ', text)
+    text = re.sub(
+        r'[a-z0-9]+(?:_[a-z0-9]+)+',
+        lambda m: m.group(0).replace('_', ' ') + ' ' + m.group(0),
+        text)
 
     tokenz = np.array(text.split())
     mask = np.isin(tokenz, stop_words, invert=True)
