@@ -23,31 +23,25 @@ class BM25:
         self.k1 = k1
         self.b = b
 
-        self.doc_lens = [len(doc) for doc in corpus]
-        self.doc_freqs = [Counter(doc) for doc in corpus]
-        self.total_doc_len = sum(self.doc_lens)
-        self.corpus_size = len(corpus)
-
-        self.nd: Counter = Counter()
+        self.docs_lens = [len(doc) for doc in corpus]
+        self.avg_len = sum(self.docs_lens) / len(self.docs_lens)
+        self.docs = [Counter(doc) for doc in corpus]
+        self.nd = Counter(word for doc in self.docs for word in doc)
         self.idf: Dict[str, float] = {}
-
-        for doc in tqdm(corpus, desc="Word counting for IDF calculation"):
-            for word in set(doc):
-                self.nd[word] += 1
 
         self._rebuild_idf()
 
     def _rebuild_idf(self) -> None:
-        self.avgdl = (
-            self.total_doc_len / self.corpus_size
-            if self.corpus_size > 0
-            else 0
-        )
+        if self.docs_lens:
+            self.avg_len = sum(self.docs_lens) / len(self.docs_lens)
+        else:
+            self.avg_len = 0.0
 
+        doc_len = len(self.docs_lens)
         self.idf = {}
         for word, freq in tqdm(self.nd.items(), desc="Calculating IDF"):
             self.idf[word] = math.log(
-                (self.corpus_size - freq + 0.5) / (freq + 0.5) + 1.0)
+                (doc_len - freq + 0.5) / (freq + 0.5) + 1.0)
 
     def remove_documents(self, indices: List[int]) -> None:
         """Removes documents from the corpus based on their indices.
@@ -58,40 +52,31 @@ class BM25:
         if not indices:
             return
 
-        for idx in sorted(set(indices), reverse=True):
-            doc_len = self.doc_lens.pop(idx)
-            doc_freq = self.doc_freqs.pop(idx)
+        sorted_indices = sorted(indices, reverse=True)
+        del_docs: list[Counter[str]] = []
+        for idx in sorted_indices:
+            self.docs_lens.pop(idx)
+            del_docs.append(self.docs.pop(idx))
 
-            self.total_doc_len -= doc_len
-            self.corpus_size -= 1
+        self.nd.subtract(word for doc in del_docs for word in doc)
+        self.nd += Counter()
 
-            for word in doc_freq.keys():
-                self.nd[word] -= 1
-                if self.nd[word] <= 0:
-                    del self.nd[word]
-
-    def add_documents(self, documents: List[List[str]]) -> None:
+    def add_documents(self, corpus: List[List[str]]) -> None:
         """Adds documents to the corpus.
 
         Args:
             documents: A list of documents,
             where each document is a list of tokens.
         """
-        if not documents:
+        if not corpus:
             return
 
-        for doc in documents:
-            doc_len = len(doc)
-            doc_freq = Counter(doc)
+        new_lens = [len(doc) for doc in corpus]
+        new_docs = [Counter(doc) for doc in corpus]
 
-            self.doc_lens.append(doc_len)
-            self.doc_freqs.append(doc_freq)
-
-            self.total_doc_len += doc_len
-            self.corpus_size += 1
-
-            for word in set(doc):
-                self.nd[word] += 1
+        self.docs_lens.extend(new_lens)
+        self.docs.extend(new_docs)
+        self.nd.update(word for doc in new_docs for word in doc)
 
     def get_scores(self, query: List[str]) -> List[float]:
         """Returns the BM25 score for every document given a query.
@@ -102,7 +87,7 @@ class BM25:
         Returns:
             A list of BM25 scores for each document in the corpus.
         """
-        scores = [0.0] * self.corpus_size
+        scores = [0.0] * len(self.docs_lens)
 
         for q in tqdm(query, desc="Calculating BM25 scores"):
             if q not in self.idf:
@@ -110,16 +95,16 @@ class BM25:
 
             q_idf = self.idf[q]
 
-            for idx, doc_freq in enumerate(self.doc_freqs):
+            for idx, doc_freq in enumerate(self.docs):
                 freq = doc_freq[q]
                 if freq == 0:
                     continue
 
-                doc_len = self.doc_lens[idx]
+                doc_len = self.docs_lens[idx]
 
                 numerator = freq * (self.k1 + 1)
                 denominator = freq + self.k1 * (
-                    1 - self.b + self.b * (doc_len / self.avgdl))
+                    1 - self.b + self.b * (doc_len / self.avg_len))
 
                 scores[idx] += q_idf * (numerator / denominator)
 
