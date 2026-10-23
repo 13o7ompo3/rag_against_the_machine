@@ -33,6 +33,7 @@ class BM25Index(SearchIndex):
         processed_dir: str,
         max_chunk_size: int = 2000,
     ) -> None:
+        self.processed_dir = processed_dir 
         try:
             self.load(processed_dir)
             if self.max_chunk_size != max_chunk_size:

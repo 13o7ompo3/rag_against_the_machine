@@ -40,6 +40,7 @@ class SemanticIndex(SearchIndex):
             processed_dir: The directory where the indexing will be stored.
             max_chunk_size: The maximum size of each chunk.
         """
+        self.processed_dir = processed_dir
         try:
             self.load(processed_dir)
             if self.max_chunk_size != max_chunk_size:
@@ -72,7 +73,7 @@ class SemanticIndex(SearchIndex):
                 if keep
             ]
 
-            if self.embeddings is not None and self.embeddings.numel() > 0:
+            if self.embeddings is not None:
                 self.embeddings = self.embeddings[mask]
 
         added_texts = [chunk.text for chunk in added_chunks if chunk.text]
@@ -85,7 +86,7 @@ class SemanticIndex(SearchIndex):
                 show_progress_bar=True,
             )
 
-            if self.embeddings is None or self.embeddings.numel() == 0:
+            if self.embeddings is None:
                 self.embeddings = added_embeddings
             else:
                 self.embeddings = torch.cat(
