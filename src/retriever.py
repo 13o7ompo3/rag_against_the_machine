@@ -6,7 +6,7 @@ from hashlib import sha512
 from typing import List
 
 import numpy as np
-from dotenv import load_dotenv, set_key
+from dotenv import dotenv_values, set_key
 
 from .bm25 import BM25
 from .chunker import collect_chunk_delta
@@ -33,7 +33,7 @@ class BM25Index(SearchIndex):
         processed_dir: str,
         max_chunk_size: int = 2000,
     ) -> None:
-        self.processed_dir = processed_dir 
+        self.processed_dir = processed_dir
         try:
             self.load(processed_dir)
             if self.max_chunk_size != max_chunk_size:
@@ -111,11 +111,17 @@ class BM25Index(SearchIndex):
             bm25_path = os.path.join(processed_dir, 'bm25_index.pkl')
             chunks_path = os.path.join(processed_dir, 'chunks_metadata.pkl')
             manifest_path = os.path.join(processed_dir, 'manifest.pkl')
-            max_chunk_size_path = os.path.join(processed_dir, 'max_chunk_size.pkl')
-            with (open(bm25_path + '.tmp', 'wb') as bm25_handle,
-                 open(chunks_path + '.tmp', 'wb') as chunks_handle,
-                 open(manifest_path + '.tmp', 'wb') as manifest_handle,
-                 open(max_chunk_size_path + '.tmp', 'wb') as max_chunk_size_handle):
+            max_chunk_size_path = os.path.join(
+                processed_dir,
+                'max_chunk_size.pkl',
+            )
+            with (
+                open(bm25_path + '.tmp', 'wb') as bm25_handle,
+                open(chunks_path + '.tmp', 'wb') as chunks_handle,
+                open(manifest_path + '.tmp', 'wb') as manifest_handle,
+                open(max_chunk_size_path + '.tmp', 'wb')
+                as max_chunk_size_handle,
+            ):
                 bm25_handle.write(bm25_bytes)
                 chunks_handle.write(chunks_bytes)
                 manifest_handle.write(manifest_bytes)
@@ -134,7 +140,12 @@ class BM25Index(SearchIndex):
             key = secrets.token_bytes(32)
             integrity_hash = hmac.new(
                 key,
-                bm25_bytes + chunks_bytes + manifest_bytes + max_chunk_size_bytes,
+                (
+                    bm25_bytes
+                    + chunks_bytes
+                    + manifest_bytes
+                    + max_chunk_size_bytes
+                ),
                 sha512,
             ).hexdigest()
             set_key('.env', 'KEY1', key.hex())
@@ -151,16 +162,22 @@ class BM25Index(SearchIndex):
 
         if not all(
             os.path.exists(path)
-            for path in (bm25_path, chunks_path, manifest_path, max_chunk_size_path)
+            for path in (
+                bm25_path,
+                chunks_path,
+                manifest_path,
+                max_chunk_size_path,
+            )
         ):
             raise RuntimeError(
                 f"BM25 index files not found in '{processed_dir}'."
             )
 
-        if not load_dotenv(override=True):
+        env = dotenv_values('.env')
+        if not env:
             raise EnvironmentError("Failed to load .env file.")
 
-        key = os.getenv('KEY1')
+        key = env.get('KEY1')
         if key is None:
             raise ValueError("KEY1 environment variable is not set.")
 
@@ -174,7 +191,7 @@ class BM25Index(SearchIndex):
         if len(key_bytes) != 32:
             raise ValueError("KEY1 must decode to exactly 32 bytes.")
 
-        stored_hash = os.getenv('HASH1', '')
+        stored_hash = env.get('HASH1') or ''
 
         try:
             with (
@@ -195,7 +212,12 @@ class BM25Index(SearchIndex):
         try:
             calculated_hash = hmac.new(
                 key_bytes,
-                bm25_bytes + chunks_bytes + manifest_bytes + max_chunk_size_bytes,
+                (
+                    bm25_bytes
+                    + chunks_bytes
+                    + manifest_bytes
+                    + max_chunk_size_bytes
+                ),
                 sha512,
             ).hexdigest()
             if not hmac.compare_digest(calculated_hash, stored_hash):
@@ -215,7 +237,7 @@ class BM25Index(SearchIndex):
             self.max_chunk_size = pickle.loads(max_chunk_size_bytes)
         except Exception:
             raise RuntimeError("Failed to deserialize BM25 index data.")
-        
+
         self.processed_dir = processed_dir
         self._load_cache()
 
@@ -227,14 +249,14 @@ class BM25Index(SearchIndex):
     ) -> MinimalSearchResults:
         if self.bm25 is None:
             raise RuntimeError("Index not loaded.")
-        
+
         cache_key = (query, k)
         if cache_key in self.query_cache:
-            retrieved_sources = self.query_cache[cache_key]
+            cached_sources = self.query_cache[cache_key]
             return MinimalSearchResults(
                 question_id=question_id,
                 question=query,
-                retrieved_sources=retrieved_sources,
+                retrieved_sources=cached_sources,
             )
 
         try:

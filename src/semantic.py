@@ -8,7 +8,7 @@ from io import BytesIO
 from typing import List
 
 import torch
-from dotenv import load_dotenv, set_key
+from dotenv import dotenv_values, set_key
 from sentence_transformers import SentenceTransformer, util
 
 from .chunker import collect_chunk_delta
@@ -119,18 +119,29 @@ class SemanticIndex(SearchIndex):
         try:
             os.makedirs(processed_dir, exist_ok=True)
             tensor_path = os.path.join(
-                processed_dir, 'semantic_embeddings.pt')
+                processed_dir,
+                'semantic_embeddings.pt',
+            )
             metadata_path = os.path.join(
-                processed_dir, 'semantic_metadata.pkl')
+                processed_dir,
+                'semantic_metadata.pkl',
+            )
             manifest_path = os.path.join(
-                processed_dir, 'semantic_manifest.pkl')
+                processed_dir,
+                'semantic_manifest.pkl',
+            )
             max_chunk_size_path = os.path.join(
-                processed_dir, 'semantic_max_chunk_size.pkl')
+                processed_dir,
+                'semantic_max_chunk_size.pkl',
+            )
 
-            with (open(tensor_path + '.tmp', 'wb') as tensor_handle,
-                 open(metadata_path + '.tmp', 'wb') as metadata_handle,
-                 open(manifest_path + '.tmp', 'wb') as manifest_handle,
-                 open(max_chunk_size_path + '.tmp', 'wb') as max_chunk_size_handle):
+            with (
+                open(tensor_path + '.tmp', 'wb') as tensor_handle,
+                open(metadata_path + '.tmp', 'wb') as metadata_handle,
+                open(manifest_path + '.tmp', 'wb') as manifest_handle,
+                open(max_chunk_size_path + '.tmp', 'wb')
+                as max_chunk_size_handle,
+            ):
                 tensor_handle.write(embeddings_bytes)
                 metadata_handle.write(metadata_bytes)
                 manifest_handle.write(manifest_bytes)
@@ -149,7 +160,12 @@ class SemanticIndex(SearchIndex):
             key = secrets.token_bytes(32)
             integrity_hash = hmac.new(
                 key,
-                embeddings_bytes + metadata_bytes + manifest_bytes + max_chunk_size_bytes,
+                (
+                    embeddings_bytes
+                    + metadata_bytes
+                    + manifest_bytes
+                    + max_chunk_size_bytes
+                ),
                 sha512,
             ).hexdigest()
             set_key('.env', 'KEY2', key.hex())
@@ -163,22 +179,33 @@ class SemanticIndex(SearchIndex):
         tensor_path = os.path.join(processed_dir, 'semantic_embeddings.pt')
         metadata_path = os.path.join(processed_dir, 'semantic_metadata.pkl')
         manifest_path = os.path.join(processed_dir, 'semantic_manifest.pkl')
-        max_chunk_size_path = os.path.join(processed_dir, 'semantic_max_chunk_size.pkl')
+        max_chunk_size_path = os.path.join(
+            processed_dir,
+            'semantic_max_chunk_size.pkl',
+        )
 
-        if not all(os.path.exists(path)
-                   for path in (tensor_path, metadata_path, manifest_path, max_chunk_size_path)):
+        if not all(
+            os.path.exists(path)
+            for path in (
+                tensor_path,
+                metadata_path,
+                manifest_path,
+                max_chunk_size_path,
+            )
+        ):
             raise RuntimeError(
                 f"Semantic index files not found in '{processed_dir}'."
             )
 
-        if not load_dotenv(override=True):
+        env = dotenv_values('.env')
+        if not env:
             raise EnvironmentError("Failed to load .env file.")
 
-        key = os.getenv('KEY2')
+        key = env.get('KEY2')
         if key is None:
             raise ValueError("KEY2 environment variable is not set.")
 
-        stored_hash = os.getenv('HASH2', '')
+        stored_hash = env.get('HASH2') or ''
 
         try:
             key_bytes = bytes.fromhex(key)
@@ -205,7 +232,12 @@ class SemanticIndex(SearchIndex):
         try:
             calculated_hash = hmac.new(
                 key_bytes,
-                embeddings_bytes + metadata_bytes + manifest_bytes + max_chunk_size_bytes,
+                (
+                    embeddings_bytes
+                    + metadata_bytes
+                    + manifest_bytes
+                    + max_chunk_size_bytes
+                ),
                 sha512,
             ).hexdigest()
             if not hmac.compare_digest(calculated_hash, stored_hash):
@@ -228,7 +260,7 @@ class SemanticIndex(SearchIndex):
             self.max_chunk_size = pickle.loads(max_chunk_size_bytes)
         except Exception:
             raise RuntimeError("Failed to deserialize semantic index data.")
-        
+
         self.processed_dir = processed_dir
         self._load_cache()
 
@@ -243,11 +275,11 @@ class SemanticIndex(SearchIndex):
 
         cache_key = (query, k)
         if cache_key in self.query_cache:
-            retrieved_sources = self.query_cache[cache_key]
+            cached_sources = self.query_cache[cache_key]
             return MinimalSearchResults(
                 question_id=question_id,
                 question=query,
-                retrieved_sources=retrieved_sources,
+                retrieved_sources=cached_sources,
             )
 
         if len(self.chunks_metadata) == 0:
@@ -268,13 +300,12 @@ class SemanticIndex(SearchIndex):
         top_k = min(k, len(self.chunks_metadata))
         try:
             top_results = torch.topk(cos_scores, k=top_k)
+
+            retrieved_sources: List[MinimalSource] = []
+            for _, idx in zip(top_results.values, top_results.indices):
+                retrieved_sources.append(self.chunks_metadata[int(idx)])
         except Exception:
             raise RuntimeError("Failed to rank semantic search results.")
-
-        retrieved_sources: List[MinimalSource] = []
-        for _, idx in zip(top_results.values, top_results.indices):
-            retrieved_sources.append(self.chunks_metadata[int(idx)])
-
         self.query_cache[(query, k)] = retrieved_sources
         return MinimalSearchResults(
             question_id=question_id,

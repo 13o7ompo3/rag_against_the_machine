@@ -1,7 +1,7 @@
 import json
 import logging
 import sys
-from src.models import StudentSearchResults, RagDataset, AnsweredQuestion
+from .models import StudentSearchResults, RagDataset, AnsweredQuestion
 
 logger = logging.getLogger(__name__)
 
