@@ -35,7 +35,10 @@ class HybridIndex(SearchIndex):
         """
         self.bm25_index.build_from_raw(raw_dir, processed_dir, max_chunk_size)
         self.semantic_index.build_from_raw(
-            raw_dir, processed_dir, max_chunk_size)
+            raw_dir,
+            processed_dir,
+            max_chunk_size,
+        )
 
     def load(self, processed_dir: str) -> None:
         """Load both BM25 and semantic indices from disk.
@@ -72,15 +75,27 @@ class HybridIndex(SearchIndex):
             MinimalSearchResults: The search results.
         """
         bm25_results = self.bm25_index.search(query, 3 * k, question_id)
-        semantic_results = self.semantic_index.search(query, 3 * k, question_id)
+        semantic_results = self.semantic_index.search(
+            query,
+            3 * k,
+            question_id,
+        )
 
-        bm25_sources = [Source(**x.model_dump())
-                        for x in bm25_results.retrieved_sources]
-        semantic_sources = [Source(**x.model_dump())
-                            for x in semantic_results.retrieved_sources]
+        bm25_sources = [
+            Source(**x.model_dump())
+            for x in bm25_results.retrieved_sources
+        ]
+        semantic_sources = [
+            Source(**x.model_dump())
+            for x in semantic_results.retrieved_sources
+        ]
 
-        merged = merge_by_weighted_rank(bm25_sources, semantic_sources,
-                                        1.5, 1.0)
+        merged = merge_by_weighted_rank(
+            bm25_sources,
+            semantic_sources,
+            1.5,
+            1.0,
+        )
 
         return MinimalSearchResults(
             question_id=question_id,
@@ -103,9 +118,11 @@ class Source(MinimalSource):
         """
         if not isinstance(other, MinimalSource):
             return False
-        return (self.file_path == other.file_path and
-                self.first_character_index == other.first_character_index and
-                self.last_character_index == other.last_character_index)
+        return (
+            self.file_path == other.file_path
+            and self.first_character_index == other.first_character_index
+            and self.last_character_index == other.last_character_index
+        )
 
     def __hash__(self) -> int:
         """Compute a hash based on file_path and character indices.
@@ -113,12 +130,21 @@ class Source(MinimalSource):
         Returns:
             int: The computed hash value.
         """
-        return hash((self.file_path, self.first_character_index,
-                     self.last_character_index))
+        return hash(
+            (
+                self.file_path,
+                self.first_character_index,
+                self.last_character_index,
+            )
+        )
 
 
-def merge_by_weighted_rank(list1: list[Source], list2: list[Source],
-                           weight1: float, weight2: float) -> list[Source]:
+def merge_by_weighted_rank(
+    list1: list[Source],
+    list2: list[Source],
+    weight1: float,
+    weight2: float,
+) -> list[Source]:
     """Merge two lists of sources based on weighted rank.
 
     Args:
