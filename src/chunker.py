@@ -1,15 +1,14 @@
-from typing import Any
 import os
 import hashlib
 from dataclasses import dataclass
 from typing import Dict, List
-from langchain_text_splitters import RecursiveCharacterTextSplitter, Language
 from .models import MinimalSource
 import logging
 import re
 
 
 logger = logging.getLogger(__name__)
+
 
 def split_by_length(text: str, chunk_size: int, overlap: int) -> list[str]:
     """Split text into fixed-size chunks with a sliding overlap.
@@ -35,7 +34,7 @@ def split_by_length(text: str, chunk_size: int, overlap: int) -> list[str]:
     if overlap < 0:
         raise ValueError("Overlap cannot be negative.")
     if overlap >= chunk_size:
-        raise ValueError("Overlap must be strictly less than chunk_size to avoid infinite loops.")
+        raise ValueError("Overlap must be strictly less than chunk_size")
 
     chunks = []
     start = 0
@@ -92,18 +91,21 @@ def merge_splits(splits: list[str], chunk_size: int) -> list[str]:
     return merged_chunks
 
 
-
-def split_by_separators(text: str, separators: list[str], chunk_size: int) -> list[str]:
+def split_by_separators(
+    text: str,
+    separators: list[str],
+    chunk_size: int,
+) -> list[str]:
     """Split text recursively on a prioritized list of separator patterns.
 
-    The function tries the first separator, then recursively splits any resulting
-    segment that is still too large using the remaining separators. The final
-    result is merged back to respect the maximum chunk size.
+    The function tries the first separator, then recursively splits any
+    resulting segment that is still too large using the remaining separators.
+    The final result is merged back to respect the maximum chunk size.
 
     Args:
         text: The text to split.
-        separators: Ordered regex-style separators to try from highest to lowest
-            priority.
+        separators: Ordered regex-style separators to try from highest
+            to lowest priority.
         chunk_size: Maximum size of a returned chunk.
 
     Returns:
@@ -139,8 +141,7 @@ def _is_indexable_file(file_path: str) -> bool:
 
 @dataclass(frozen=True)
 class ChunkedDocument:
-    """A tuple containing a MinimalSource
-    and its corresponding chunk of text."""
+    """A tuple containing a MinimalSource and its text chunk."""
     source: MinimalSource
     text: str
 
@@ -161,8 +162,8 @@ def _process_splits(
         text: The original full text from which the chunks were derived.
 
     Returns:
-        A list of ChunkedDocument entries containing the source metadata and the
-        corresponding text chunk.
+        A list of ChunkedDocument entries containing source metadata and
+        the corresponding text chunk.
     """
     chunks: List[ChunkedDocument] = []
     current_offset = 0
@@ -175,6 +176,7 @@ def _process_splits(
 
         end_idx = start_idx + len(chunk)
 
+        chunk_text = f"{chunk} {file_path}"
         chunks.append(
             ChunkedDocument(
                 source=MinimalSource(
@@ -182,7 +184,7 @@ def _process_splits(
                     first_character_index=start_idx,
                     last_character_index=end_idx,
                 ),
-                text=chunk,
+                text=chunk_text,
             )
         )
 
@@ -222,7 +224,11 @@ def chunk_markdown(
         A list of ChunkedDocument records for the generated chunks.
     """
 
-    splits = split_by_length(text, max_chunk_size, (max_chunk_size * 15) // 100)
+    splits = split_by_length(
+        text,
+        max_chunk_size,
+        (max_chunk_size * 15) // 100,
+    )
     return _process_splits(splits, file_path, text)
 
 
@@ -233,8 +239,9 @@ def chunk_python(
 ) -> List[ChunkedDocument]:
     """Chunk Python source code by structural boundaries when possible.
 
-    The splitter prefers class and function definitions, then falls back to blank
-    lines, newline boundaries, and word boundaries to keep chunks readable while
+    The splitter prefers class and function definitions, then falls
+    back to blank lines, newline boundaries, and word boundaries to
+    keep chunks readable while
     respecting the configured maximum size.
 
     Args:
@@ -258,8 +265,8 @@ def chunk_file(
 ) -> List[ChunkedDocument]:
     """Chunk a file based on its extension.
 
-    Supported file types are Python, Markdown, and plain text. Unsupported file
-    types return an empty list.
+    Supported file types are Python, Markdown, and plain text. Unsupported
+    file types return an empty list.
 
     Args:
         file_path: The file path to inspect.
