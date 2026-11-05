@@ -187,11 +187,56 @@ class RagCLI:
         student_search_results_path: str,
         save_directory: str,
     ) -> None:
-        """Generate answers for a dataset and save the answer file."""
+        """Generate answers for a dataset and save the answer file.
+
+        Args:
+            student_search_results_path: Path to the StudentSearchResults file.
+            save_directory: Directory to save the answer results.
+        """
         logging.info(
             f"Generating answers for {student_search_results_path}. "
             f"Saving to {save_directory}..."
         )
+
+        try:
+            with open(student_search_results_path, 'r', encoding='utf-8') as f:
+                raw_data = json.load(f)
+                if not isinstance(raw_data, dict):
+                    raise ValueError(
+                        "StudentSearchResults JSON must be a dictionary."
+                    )
+                student_results = StudentSearchResults(**raw_data)
+        except Exception as e:
+            logging.error(
+                f"Failed to load StudentSearchResults from "
+                f"{student_search_results_path}: {e}"
+            )
+            return
+
+        try:
+            from .generator import AnswerGenerator
+            from .models import StudentSearchResultsAndAnswer
+
+            generator = AnswerGenerator()
+            answers = generator.process_batch(student_results.search_results)
+            final_output = StudentSearchResultsAndAnswer(
+                search_results=answers,
+                k=student_results.k,
+            )
+
+            os.makedirs(save_directory, exist_ok=True)
+            filename = os.path.basename(student_search_results_path)
+            save_path = os.path.join(save_directory, filename)
+
+            with open(save_path, 'w', encoding='utf-8') as f:
+                f.write(final_output.model_dump_json(indent=2))
+
+            print(f"Saved student_answers to {save_path}")
+        except Exception as e:
+            logging.error(
+                f"Failed to generate answers for "
+                f"{student_search_results_path}: {e}"
+            )
 
     def evaluate(
         self,
