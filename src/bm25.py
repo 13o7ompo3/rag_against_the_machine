@@ -6,6 +6,8 @@ from tqdm import tqdm
 
 
 class BM25:
+    """Okapi BM25 ranking model for lexical document retrieval."""
+
     def __init__(
         self,
         corpus: List[List[str]],
@@ -32,6 +34,7 @@ class BM25:
         self._rebuild_idf()
 
     def _rebuild_idf(self) -> None:
+        """Recompute inverse document frequencies for all terms."""
         if self.docs_lens:
             self.avg_len = sum(self.docs_lens) / len(self.docs_lens)
         else:
@@ -65,8 +68,8 @@ class BM25:
         """Adds documents to the corpus.
 
         Args:
-            documents: A list of documents,
-            where each document is a list of tokens.
+            corpus: A list of documents, where each document is a
+                list of tokens.
         """
         if not corpus:
             return

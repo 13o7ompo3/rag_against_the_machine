@@ -31,11 +31,13 @@ stop_words = ["a", "about", "above", "after", "again", "against", "ain",
 
 
 def tokenize(text: str) -> list[str]:
-    """
-    Tokenizes the input text into a list of tokens.
+    """Tokenizes the input text into a list of tokens.
 
     Args:
         text (str): The input text to be tokenized.
+
+    Returns:
+        list[str]: Filtered list of alphanumeric tokens without stop words.
     """
     text = text.lower()
 

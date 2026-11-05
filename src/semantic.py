@@ -22,6 +22,11 @@ class SemanticIndex(SearchIndex):
     """A vector index built with a lightweight CPU model for embeddings."""
 
     def __init__(self, model_name: str = 'all-MiniLM-L6-v2'):
+        """Initialize the semantic index with an embedding model.
+
+        Args:
+            model_name: Hugging Face model identifier for SentenceTransformer.
+        """
         super().__init__()
         self.model = SentenceTransformer(model_name)
         self.embeddings: torch.Tensor | None = None
@@ -102,7 +107,11 @@ class SemanticIndex(SearchIndex):
             self.save(processed_dir)
 
     def save(self, processed_dir: str) -> None:
-        """Serialize embeddings and metadata to disk."""
+        """Serialize embeddings and metadata to disk.
+
+        Args:
+            processed_dir: Directory where index files will be saved.
+        """
         if self.embeddings is None:
             raise RuntimeError("Cannot save an empty index.")
 
@@ -175,7 +184,11 @@ class SemanticIndex(SearchIndex):
         self._save_cache()
 
     def load(self, processed_dir: str) -> None:
-        """Load the serialized embeddings and metadata from disk."""
+        """Load the serialized embeddings and metadata from disk.
+
+        Args:
+            processed_dir: Directory containing stored index files.
+        """
         tensor_path = os.path.join(processed_dir, 'semantic_embeddings.pt')
         metadata_path = os.path.join(processed_dir, 'semantic_metadata.pkl')
         manifest_path = os.path.join(processed_dir, 'semantic_manifest.pkl')
@@ -270,6 +283,16 @@ class SemanticIndex(SearchIndex):
         k: int,
         question_id: str,
     ) -> MinimalSearchResults:
+        """Retrieve top-k matching sources using cosine similarity.
+
+        Args:
+            query: The search query string.
+            k: Number of top results to return.
+            question_id: Unique identifier for the question.
+
+        Returns:
+            MinimalSearchResults containing the retrieved sources.
+        """
         if self.embeddings is None:
             raise RuntimeError("Index not loaded.")
 

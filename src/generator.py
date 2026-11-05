@@ -9,8 +9,15 @@ logger = logging.getLogger(__name__)
 
 
 def read_chunk(file_path: str, start: int, end: int) -> str:
-    """Reads a character range from a text file from 'start' to 'end' index.
-    Validates bounds to prevent negative indexing or inverted ranges.
+    """Reads a character range from a text file from start to end index.
+
+    Args:
+        file_path: Path of the source file to read from.
+        start: Starting character offset in the file.
+        end: Ending character offset in the file.
+
+    Returns:
+        The extracted chunk string from the file.
     """
     if start < 0 or end < 0:
         raise ValueError("Indices must be non-negative integers.")
@@ -27,7 +34,14 @@ def read_chunk(file_path: str, start: int, end: int) -> str:
 
 
 def extract_chunk_text(source: MinimalSource) -> str:
-    """Slice chunk text from a source file using character offsets."""
+    """Slice chunk text from a source file using character offsets.
+
+    Args:
+        source: MinimalSource containing file path and character range.
+
+    Returns:
+        The sliced chunk text, or empty string on read failure.
+    """
     try:
         return read_chunk(
             source.file_path,

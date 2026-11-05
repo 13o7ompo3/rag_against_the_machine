@@ -7,6 +7,7 @@ class SearchIndex(ABC):
     """Common interface for searchable index backends."""
 
     def __init__(self) -> None:
+        """Initialize empty index state and query cache."""
         self.chunks_metadata: list[MinimalSource] = []
         self.manifest: dict[str, str] = {}
         self.max_chunk_size: int = 2000
@@ -14,6 +15,7 @@ class SearchIndex(ABC):
         self.processed_dir: str | None = None
 
     def _save_cache(self) -> None:
+        """Serialize and persist HMAC-signed query cache to disk."""
         if not (
             self.processed_dir
             and hasattr(self, 'env_key_name')
@@ -48,6 +50,7 @@ class SearchIndex(ABC):
             pass
 
     def _load_cache(self) -> None:
+        """Load and verify HMAC-signed query cache from disk."""
         if not (
             self.processed_dir
             and hasattr(self, 'env_key_name')
@@ -107,14 +110,31 @@ class SearchIndex(ABC):
         processed_dir: str,
         max_chunk_size: int = 2000,
     ) -> None:
+        """Build the index from raw documents.
+
+        Args:
+            raw_dir: Path to raw documents directory.
+            processed_dir: Directory where index files will be stored.
+            max_chunk_size: Maximum character length per chunk.
+        """
         raise NotImplementedError
 
     @abstractmethod
     def load(self, processed_dir: str) -> None:
+        """Load the index and integrity metadata from disk.
+
+        Args:
+            processed_dir: Directory containing stored index files.
+        """
         raise NotImplementedError
 
     @abstractmethod
     def save(self, processed_dir: str) -> None:
+        """Serialize and persist the index and integrity metadata to disk.
+
+        Args:
+            processed_dir: Directory to save index files into.
+        """
         raise NotImplementedError
 
     @abstractmethod
@@ -124,4 +144,14 @@ class SearchIndex(ABC):
         k: int,
         question_id: str,
     ) -> MinimalSearchResults:
+        """Perform search to retrieve top-k matching sources for a query.
+
+        Args:
+            query: The search query string.
+            k: Number of top results to return.
+            question_id: Unique identifier for the question.
+
+        Returns:
+            MinimalSearchResults containing retrieved sources.
+        """
         raise NotImplementedError

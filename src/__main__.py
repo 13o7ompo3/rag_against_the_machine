@@ -19,6 +19,14 @@ class RagCLI:
     """Command-Line Interface for the RAG pipeline."""
 
     def _make_index(self, backend: str) -> SearchIndex:
+        """Instantiate a SearchIndex implementation for requested backend.
+
+        Args:
+            backend: Index backend type ('bm25', 'semantic', or 'hybrid').
+
+        Returns:
+            An instantiated SearchIndex instance.
+        """
         if backend == 'bm25':
             from .retriever import BM25Index
             return BM25Index()
@@ -33,7 +41,12 @@ class RagCLI:
         raise ValueError(f"Unsupported backend: {backend}")
 
     def index(self, backend: str = 'bm25', max_chunk_size: int = 2000) -> None:
-        """Ingest data/raw/ and build an index under data/processed/."""
+        """Ingest data/raw/ and build an index under data/processed/.
+
+        Args:
+            backend: Index backend to use ('bm25', 'semantic', or 'hybrid').
+            max_chunk_size: Maximum character length for each document chunk.
+        """
 
         logging.info(
             f"Running {backend} indexer with max_chunk_size={max_chunk_size}."
@@ -46,7 +59,13 @@ class RagCLI:
             logging.error(f"Failed to build {backend} index: {e}")
 
     def search(self, query: str, k: int, backend: str = 'bm25') -> None:
-        """Return the top-k sources for a single query."""
+        """Return the top-k sources for a single query.
+
+        Args:
+            query: The search query string.
+            k: Number of top results to return.
+            backend: Index backend to query ('bm25', 'semantic', or 'hybrid').
+        """
         logging.info(
             f"Searching with {backend} for '{query}' "
             f"returning top {k} results..."
@@ -83,6 +102,7 @@ class RagCLI:
             dataset_path: Path to the RagDataset JSON file.
             k: Number of top results to return for each query.
             save_directory: Directory to save the StudentSearchResults.
+            backend: Index backend to query ('bm25', 'semantic', or 'hybrid').
         """
         logging.info(
             f"Batch searching dataset {dataset_path} (k={k}, "
@@ -146,7 +166,13 @@ class RagCLI:
         print(f"Saved student_search_results to {save_path}")
 
     def answer(self, query: str, k: int = 5, backend: str = 'bm25') -> None:
-        """Answer a single query using the retrieved context."""
+        """Answer a single query using the retrieved context.
+
+        Args:
+            query: The input question string to answer.
+            k: Number of top retrieved sources to use for context.
+            backend: Index backend to query ('bm25', 'semantic', or 'hybrid').
+        """
         logging.info(
             f"Answering query '{query}' using top {k} retrieved sources..."
         )

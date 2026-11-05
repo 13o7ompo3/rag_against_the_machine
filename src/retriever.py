@@ -22,6 +22,11 @@ class BM25Index(SearchIndex):
     """BM25-backed search index with the same interface as semantic search."""
 
     def __init__(self, processed_dir: str | None = None):
+        """Initialize the BM25 index.
+
+        Args:
+            processed_dir: Directory where index files are stored.
+        """
         super().__init__()
         self.bm25: BM25 | None = None
         self.processed_dir = processed_dir
@@ -33,6 +38,13 @@ class BM25Index(SearchIndex):
         processed_dir: str,
         max_chunk_size: int = 2000,
     ) -> None:
+        """Chunk corpus files, build the BM25 model, and persist the index.
+
+        Args:
+            raw_dir: Directory containing raw source files.
+            processed_dir: Directory where index files will be stored.
+            max_chunk_size: Maximum character length for each document chunk.
+        """
         self.processed_dir = processed_dir
         try:
             self.load(processed_dir)
@@ -95,6 +107,11 @@ class BM25Index(SearchIndex):
             self.save(processed_dir)
 
     def save(self, processed_dir: str) -> None:
+        """Serialize BM25 index components and HMAC signature to disk.
+
+        Args:
+            processed_dir: Directory where index files will be saved.
+        """
         if self.bm25 is None:
             raise RuntimeError("Cannot persist an empty index.")
 
@@ -155,6 +172,11 @@ class BM25Index(SearchIndex):
         self._save_cache()
 
     def load(self, processed_dir: str) -> None:
+        """Load and verify serialized BM25 index components from disk.
+
+        Args:
+            processed_dir: Directory containing stored index files.
+        """
         bm25_path = os.path.join(processed_dir, 'bm25_index.pkl')
         chunks_path = os.path.join(processed_dir, 'chunks_metadata.pkl')
         manifest_path = os.path.join(processed_dir, 'manifest.pkl')
@@ -247,6 +269,16 @@ class BM25Index(SearchIndex):
         k: int,
         question_id: str,
     ) -> MinimalSearchResults:
+        """Retrieve top-k matching sources for a query using BM25 scoring.
+
+        Args:
+            query: The search query string.
+            k: Number of top results to return.
+            question_id: Unique identifier for the question.
+
+        Returns:
+            MinimalSearchResults containing the retrieved sources.
+        """
         if self.bm25 is None:
             raise RuntimeError("Index not loaded.")
 
