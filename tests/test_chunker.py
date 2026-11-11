@@ -78,3 +78,50 @@ def test_collect_chunk_delta_workflow(temp_raw_dir):
     assert py_path in deleted_3
     assert py_path not in manifest_3
 
+
+def test_collect_chunk_delta_unreadable_file_does_not_crash(tmp_path):
+    """Verify RAT-001: unreadable file is skipped without crashing."""
+    unreadable = tmp_path / "locked.py"
+    unreadable.write_text("x = 1")
+    os.chmod(unreadable, 0o000)
+
+    try:
+        deleted, added, manifest = collect_chunk_delta(str(tmp_path))
+        assert str(unreadable) not in manifest
+    finally:
+        os.chmod(unreadable, 0o644)
+
+
+def test_chunk_markdown_repeated_text_offsets():
+    """Verify RAT-002: sliding overlap does not snap back to offset 0."""
+    from src.chunker import chunk_markdown
+    text = "Heading A\n" + "line 1\n" * 200 + "Heading B\n" + "line 2\n" * 200
+    chunks = chunk_markdown("test.md", text, max_chunk_size=1000)
+
+    for chunk in chunks:
+        src = chunk.source
+        extracted = text[src.first_character_index:src.last_character_index]
+        assert chunk.text == f"{extracted} {src.file_path}"
+
+
+def test_split_by_length_returns_chunked_documents():
+    """Verify split_by_length directly returns a list of ChunkedDocument."""
+    from src.chunker import split_by_length, ChunkedDocument
+    text = "0123456789"
+    chunks = split_by_length("test.txt", text, chunk_size=5, overlap=2)
+
+    assert len(chunks) == 3
+    assert all(isinstance(c, ChunkedDocument) for c in chunks)
+    assert chunks[0].source.first_character_index == 0
+    assert chunks[0].source.last_character_index == 5
+    assert chunks[0].text == "01234 test.txt"
+
+    assert chunks[1].source.first_character_index == 3
+    assert chunks[1].source.last_character_index == 8
+    assert chunks[1].text == "34567 test.txt"
+
+    assert chunks[2].source.first_character_index == 6
+    assert chunks[2].source.last_character_index == 10
+    assert chunks[2].text == "6789 test.txt"
+
+

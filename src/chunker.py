@@ -5,30 +5,43 @@ from typing import Dict, List
 from .models import MinimalSource
 import logging
 import re
+from tqdm import tqdm
 
 
 logger = logging.getLogger(__name__)
 
 
-def split_by_length(text: str, chunk_size: int, overlap: int) -> list[str]:
+@dataclass
+class ChunkedDocument:
+    """A tuple containing a MinimalSource and its text chunk."""
+    source: MinimalSource
+    text: str
+
+
+def split_by_length(
+    file_path: str,
+    text: str,
+    chunk_size: int,
+    overlap: int,
+) -> List[ChunkedDocument]:
     """Split text into fixed-size chunks with a sliding overlap.
 
     The chunk boundaries are defined by character offsets rather than semantic
     separators, which keeps the implementation simple and deterministic.
 
     Args:
+        file_path: The path of the file being processed.
         text: The source text to split.
         chunk_size: Maximum number of characters in each chunk.
         overlap: Number of characters to repeat between adjacent chunks.
 
     Returns:
-        A list of string chunks covering the full text.
+        A list of ChunkedDocument records covering the full text.
 
     Raises:
         ValueError: If the chunk size is invalid or if overlap is not smaller
             than the chunk size.
     """
-
     if chunk_size <= 0:
         raise ValueError("Chunk size must be greater than 0.")
     if overlap < 0:
@@ -36,15 +49,25 @@ def split_by_length(text: str, chunk_size: int, overlap: int) -> list[str]:
     if overlap >= chunk_size:
         raise ValueError("Overlap must be strictly less than chunk_size")
 
-    chunks = []
+    chunks: List[ChunkedDocument] = []
     start = 0
     step = chunk_size - overlap
 
     while start < len(text):
-        chunk = text[start:start + chunk_size]
-        chunks.append(chunk)
+        end = min(len(text), start + chunk_size)
+        chunk = text[start:end]
+        chunks.append(
+            ChunkedDocument(
+                source=MinimalSource(
+                    file_path=file_path,
+                    first_character_index=start,
+                    last_character_index=end,
+                ),
+                text=f"{chunk} {file_path}",
+            )
+        )
 
-        if start + chunk_size >= len(text):
+        if end >= len(text):
             break
 
         start += step
@@ -112,7 +135,10 @@ def split_by_separators(
         A list of text chunks created by recursive segmentation.
     """
     if not separators:
-        return split_by_length(text, chunk_size, 0)
+        return [
+            text[i:i + chunk_size]
+            for i in range(0, len(text), chunk_size)
+        ] if text else []
     splits: list[str] = re.split(f"({separators[0]})", text)
     ret: list[str] = []
     for split in splits:
@@ -137,13 +163,6 @@ def _is_indexable_file(file_path: str) -> bool:
         or file_path.endswith('.md')
         or file_path.endswith('.txt')
     )
-
-
-@dataclass(frozen=True)
-class ChunkedDocument:
-    """A tuple containing a MinimalSource and its text chunk."""
-    source: MinimalSource
-    text: str
 
 
 def _process_splits(
@@ -223,13 +242,8 @@ def chunk_markdown(
     Returns:
         A list of ChunkedDocument records for the generated chunks.
     """
-
-    splits = split_by_length(
-        text,
-        max_chunk_size,
-        (max_chunk_size * 15) // 100,
-    )
-    return _process_splits(splits, file_path, text)
+    overlap = (max_chunk_size * 15) // 100
+    return split_by_length(file_path, text, max_chunk_size, overlap)
 
 
 def chunk_python(
@@ -308,26 +322,31 @@ def collect_chunk_delta(
     new_manifest: Dict[str, str] = {}
     added_chunks: List[ChunkedDocument] = []
 
+    target_files: List[str] = []
     for root, _, files in os.walk(raw_dir):
         for file_name in files:
             file_path = os.path.join(root, file_name)
+            if _is_indexable_file(file_path):
+                target_files.append(file_path)
+    target_files.sort()
 
-            if not _is_indexable_file(file_path):
-                continue
+    for file_path in tqdm(target_files, desc="Indexing raw files"):
+        try:
+            with open(file_path, 'r', encoding='utf-8') as file_handle:
+                text = file_handle.read()
+        except Exception as exc:
+            logger.warning(
+                f"Skipping unreadable file '{file_path}': {exc}"
+            )
+            continue
 
-            try:
-                with open(file_path, 'r', encoding='utf-8') as file_handle:
-                    text = file_handle.read()
-            except Exception as exc:
-                logger.debug(f"Error reading file {file_path}: {exc}")
+        file_hash = _hash_text(text)
+        new_manifest[file_path] = file_hash
 
-            file_hash = _hash_text(text)
-            new_manifest[file_path] = file_hash
-
-            if previous_manifest.get(file_path) != file_hash:
-                added_chunks.extend(
-                    chunk_file(file_path, text, max_chunk_size)
-                )
+        if previous_manifest.get(file_path) != file_hash:
+            added_chunks.extend(
+                chunk_file(file_path, text, max_chunk_size)
+            )
 
     deleted_file_paths = [
         file_path
