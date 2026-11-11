@@ -10,9 +10,68 @@ from .search_index import SearchIndex
 from .models import StudentSearchResults, RagDataset, MinimalSearchResults
 
 logging.basicConfig(
-    level=logging.WARNING,
-    format='%(levelname)s - %(message)s',
+    level=logging.CRITICAL,
+    format="[%(levelname)s] - %(message)s",
 )
+logging.getLogger("src").setLevel(logging.INFO)
+
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
+
+
+def _validate_int_range(
+    value: object,
+    name: str,
+    min_val: int,
+    max_val: int | None = None,
+) -> None:
+    """Validate that a CLI argument is a non-boolean integer within bounds.
+
+    Args:
+        value: Input value to validate.
+        name: Argument name used in error messages.
+        min_val: Minimum inclusive integer value allowed.
+        max_val: Optional maximum inclusive integer value allowed.
+
+    Raises:
+        ValueError: If value is not an integer or falls outside bounds.
+    """
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ValueError(
+            f"'{name}' must be an integer, got '{value}'."
+        )
+    if value < min_val or (max_val is not None and value > max_val):
+        if max_val is not None:
+            raise ValueError(
+                f"'{name}' must be between {min_val} and {max_val}, "
+                f"got {value}."
+            )
+        raise ValueError(f"'{name}' must be >= {min_val}, got {value}.")
+
+
+def _validate_param(
+    value: object,
+    name: str,
+    min_val: int,
+    max_val: int | None = None,
+) -> bool:
+    """Validate an integer CLI parameter and log an error if invalid.
+
+    Args:
+        value: Input parameter value to validate.
+        name: Parameter name for logging.
+        min_val: Minimum inclusive allowed value.
+        max_val: Optional maximum inclusive allowed value.
+
+    Returns:
+        True if valid, False otherwise.
+    """
+    try:
+        _validate_int_range(value, name, min_val, max_val)
+        return True
+    except ValueError as e:
+        logger.error(f"Invalid parameter: {e}")
+        return False
 
 
 class RagCLI:
@@ -47,8 +106,15 @@ class RagCLI:
             backend: Index backend to use ('bm25', 'semantic', or 'hybrid').
             max_chunk_size: Maximum character length for each document chunk.
         """
+        if not _validate_param(
+            max_chunk_size,
+            'max_chunk_size',
+            min_val=100,
+            max_val=3000,
+        ):
+            return
 
-        logging.info(
+        logger.info(
             f"Running {backend} indexer with max_chunk_size={max_chunk_size}."
         )
         try:
@@ -56,7 +122,7 @@ class RagCLI:
             index.build_from_raw("data/raw/", "data/processed/",
                                  max_chunk_size)
         except Exception as e:
-            logging.error(f"Failed to build {backend} index: {e}")
+            logger.error(f"Failed to build {backend} index: {e}")
 
     def search(self, query: str, k: int, backend: str = 'bm25') -> None:
         """Return the top-k sources for a single query.
@@ -66,7 +132,10 @@ class RagCLI:
             k: Number of top results to return.
             backend: Index backend to query ('bm25', 'semantic', or 'hybrid').
         """
-        logging.info(
+        if not _validate_param(k, 'k', min_val=1):
+            return
+
+        logger.info(
             f"Searching with {backend} for '{query}' "
             f"returning top {k} results..."
         )
@@ -74,7 +143,7 @@ class RagCLI:
             index = self._make_index(backend)
             index.load("data/processed/")
         except Exception as e:
-            logging.error(f"Failed to initialize {backend} index: {e}")
+            logger.error(f"Failed to initialize {backend} index: {e}")
             return
         try:
             result = index.search(
@@ -84,7 +153,7 @@ class RagCLI:
             )
             index._save_cache()
         except Exception as e:
-            logging.error(f"Failed query '{query}': {e}")
+            logger.error(f"Failed query '{query}': {e}")
             return
         print(result.model_dump_json(indent=2))
 
@@ -104,7 +173,10 @@ class RagCLI:
             save_directory: Directory to save the StudentSearchResults.
             backend: Index backend to query ('bm25', 'semantic', or 'hybrid').
         """
-        logging.info(
+        if not _validate_param(k, 'k', min_val=1):
+            return
+
+        logger.info(
             f"Batch searching dataset {dataset_path} (k={k}, "
             f"backend={backend}). Saving to {save_directory}..."
         )
@@ -113,7 +185,7 @@ class RagCLI:
             index = self._make_index(backend)
             index.load("data/processed/")
         except Exception as e:
-            logging.error(f"Failed to initialize {backend} index: {e}")
+            logger.error(f"Failed to initialize {backend} index: {e}")
             return
 
         try:
@@ -123,7 +195,7 @@ class RagCLI:
                     raise ValueError("Dataset JSON must be a dictionary.")
                 dataset = RagDataset(**raw_data)
         except Exception as e:
-            logging.error(f"Failed to load dataset from {dataset_path}: {e}")
+            logger.error(f"Failed to load dataset from {dataset_path}: {e}")
             return
 
         all_results = []
@@ -137,7 +209,7 @@ class RagCLI:
                 )
                 all_results.append(res)
             except Exception as e:
-                logging.warning(
+                logger.warning(
                     f"Search failed for question_id {item.question_id}: {e}. "
                     "Appending empty results."
                 )
@@ -160,10 +232,10 @@ class RagCLI:
             with open(save_path, 'w', encoding='utf-8') as f:
                 f.write(final_output.model_dump_json(indent=2))
         except Exception as e:
-            logging.error(f"Failed to save results to {save_path}: {e}")
+            logger.error(f"Failed to save results to {save_path}: {e}")
             return
 
-        print(f"Saved student_search_results to {save_path}")
+        logger.info(f"Saved student_search_results to {save_path}")
 
     def answer(self, query: str, k: int = 5, backend: str = 'bm25') -> None:
         """Answer a single query using the retrieved context.
@@ -173,7 +245,10 @@ class RagCLI:
             k: Number of top retrieved sources to use for context.
             backend: Index backend to query ('bm25', 'semantic', or 'hybrid').
         """
-        logging.info(
+        if not _validate_param(k, 'k', min_val=1):
+            return
+
+        logger.info(
             f"Answering query '{query}' using top {k} retrieved sources..."
         )
         try:
@@ -186,14 +261,14 @@ class RagCLI:
             )
             index._save_cache()
         except Exception as e:
-            logging.error(f"Failed during retrieval with {backend}: {e}")
+            logger.error(f"Failed during retrieval with {backend}: {e}")
             return
 
         try:
             from .generator import AnswerGenerator
             from .models import MinimalAnswer
 
-            generator = AnswerGenerator(max_new_tokens=1000)
+            generator = AnswerGenerator(max_new_tokens=128)
             generated_text = generator.generate_answer(
                 query,
                 search_res.retrieved_sources,
@@ -206,7 +281,7 @@ class RagCLI:
             )
             print(final_answer.model_dump_json(indent=2))
         except Exception as e:
-            logging.error(f"Failed to generate answer: {e}")
+            logger.error(f"Failed to generate answer: {e}")
 
     def answer_dataset(
         self,
@@ -219,7 +294,7 @@ class RagCLI:
             student_search_results_path: Path to the StudentSearchResults file.
             save_directory: Directory to save the answer results.
         """
-        logging.info(
+        logger.info(
             f"Generating answers for {student_search_results_path}. "
             f"Saving to {save_directory}..."
         )
@@ -233,7 +308,7 @@ class RagCLI:
                     )
                 student_results = StudentSearchResults(**raw_data)
         except Exception as e:
-            logging.error(
+            logger.error(
                 f"Failed to load StudentSearchResults from "
                 f"{student_search_results_path}: {e}"
             )
@@ -243,7 +318,7 @@ class RagCLI:
             from .generator import AnswerGenerator
             from .models import StudentSearchResultsAndAnswer
 
-            generator = AnswerGenerator()
+            generator = AnswerGenerator(max_new_tokens=128)
             answers = generator.process_batch(student_results.search_results)
             final_output = StudentSearchResultsAndAnswer(
                 search_results=answers,
@@ -257,9 +332,9 @@ class RagCLI:
             with open(save_path, 'w', encoding='utf-8') as f:
                 f.write(final_output.model_dump_json(indent=2))
 
-            print(f"Saved student_answers to {save_path}")
+            logger.info(f"Saved student_answers to {save_path}")
         except Exception as e:
-            logging.error(
+            logger.error(
                 f"Failed to generate answers for "
                 f"{student_search_results_path}: {e}"
             )
@@ -275,7 +350,7 @@ class RagCLI:
             student_search_results_path: Path to the StudentSearchResults file.
             dataset_path: Path to the RagDataset JSON file.
         """
-        logging.info(
+        logger.info(
             f"Evaluating {student_search_results_path}"
             f" against ground truth {dataset_path}..."
         )

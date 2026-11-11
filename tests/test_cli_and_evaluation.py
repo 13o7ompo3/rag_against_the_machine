@@ -2,7 +2,7 @@ import json
 import os
 import tempfile
 import pytest
-from src.__main__ import RagCLI
+from src.__main__ import RagCLI, _validate_int_range
 from src.evaluator import evaluate_results
 from src.models import (
     RagDataset,
@@ -164,4 +164,61 @@ def test_cli_search_dataset_batch_resilience(cli_environment, monkeypatch):
     assert saved["search_results"][0]["question_id"] == "q1"
     assert saved["search_results"][1]["question_id"] == "q2"
     assert saved["search_results"][1]["retrieved_sources"] == []
+
+
+@pytest.mark.parametrize("bad_k", [0, -1, -100, 1.5, True, False, "5", None])
+def test_validate_k_rejects_invalid_values(bad_k, monkeypatch, caplog):
+    """Verify CLI search, search_dataset, and answer reject invalid k early."""
+    cli = RagCLI()
+    called = False
+
+    def fail_if_called(backend):
+        nonlocal called
+        called = True
+        raise AssertionError("_make_index should not be called for invalid k")
+
+    monkeypatch.setattr(cli, "_make_index", fail_if_called)
+
+    with caplog.at_level("ERROR", logger="src.__main__"):
+        cli.search("test query", k=bad_k)
+        cli.search_dataset("dummy.json", k=bad_k, save_directory="out")
+        cli.answer("test query", k=bad_k)
+
+    assert not called
+    assert caplog.text.count("Invalid parameter:") == 3
+
+
+@pytest.mark.parametrize(
+    "bad_size",
+    [99, 0, -50, 3001, 10000, 500.5, True, False, "500", None],
+)
+def test_validate_max_chunk_size_rejects_invalid_values(
+    bad_size, monkeypatch, caplog
+):
+    """Verify CLI index rejects invalid max_chunk_size early."""
+    cli = RagCLI()
+    called = False
+
+    def fail_if_called(backend):
+        nonlocal called
+        called = True
+        raise AssertionError(
+            "_make_index should not be called for invalid max_chunk_size"
+        )
+
+    monkeypatch.setattr(cli, "_make_index", fail_if_called)
+
+    with caplog.at_level("ERROR", logger="src.__main__"):
+        cli.index(max_chunk_size=bad_size)
+
+    assert not called
+    assert "Invalid parameter:" in caplog.text
+
+
+def test_validate_int_range_valid_boundaries():
+    """Verify inclusive bounds pass without raising ValueError."""
+    _validate_int_range(1, "k", min_val=1)
+    _validate_int_range(5000, "k", min_val=1)
+    _validate_int_range(100, "max_chunk_size", min_val=100, max_val=3000)
+    _validate_int_range(3000, "max_chunk_size", min_val=100, max_val=3000)
 

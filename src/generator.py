@@ -1,6 +1,6 @@
+import tqdm
 import logging
 
-from typing import Iterator
 from transformers import AutoTokenizer, pipeline
 
 from .models import MinimalSource, MinimalSearchResults, MinimalAnswer
@@ -67,8 +67,26 @@ class AnswerGenerator:
             model_name: Hugging Face repository or local path for the model.
             max_new_tokens: Maximum number of tokens to generate per answer.
         """
+        logger.info(f"Loading generator model '{model_name}'...")
+        level = logger.level
+        logger.level = logging.ERROR
         self.tokenizer = AutoTokenizer.from_pretrained(model_name)
-        self.model = pipeline(task="text-generation", model=model_name)
+
+        self.model = pipeline(
+            task="text-generation",
+            model=model_name,
+            tokenizer=self.tokenizer,
+        )
+        logger.level = level
+        assert (hasattr(self.model.model.config, "max_position_embeddings")
+                and isinstance(self.model.model.config.max_position_embeddings,
+                int)), (
+            "The model's config does not have 'max_position_embeddings'. "
+            "Please ensure the model supports this attribute."
+            )
+
+        self.context_window = self.model.model.config.max_position_embeddings
+
         self.model.generation_config.max_new_tokens = max_new_tokens
         self.max_new_tokens = max_new_tokens
 
@@ -86,27 +104,52 @@ class AnswerGenerator:
         Returns:
             A list of chat message dictionaries with role and content.
         """
-        context_blocks: list[str] = []
-        idx = 1
-        for src in sources:
-            chunk_text = extract_chunk_text(src).strip()
-            if chunk_text:
-                context_blocks.append(
-                    f"[Source {idx}: {src.file_path}]\n{chunk_text}"
-                )
-                idx += 1
-        context_str = (
-            "\n\n---\n\n".join(context_blocks)
-            if context_blocks
-            else "No relevant context found."
-        )
-
         system_prompt = (
             "You are a precise technical assistant for a database. "
             "Answer the user's question directly and concisely using ONLY "
             "the provided context. If the context does not contain enough "
             "information, state that clearly without guessing."
         )
+
+        base_user_prompt = f"Context:\n\n\nQuestion: {question}\n\nAnswer:"
+
+        static_text = (
+            system_prompt + base_user_prompt +
+            "Based on the provided context,")
+        static_tokens = len(self.tokenizer.encode(static_text))
+
+        generation_buffer = self.max_new_tokens + 50
+
+        max_context_tokens = (
+            self.context_window - static_tokens - generation_buffer)
+
+        context_blocks: list[str] = []
+        idx = 1
+        current_context_tokens = 0
+
+        for src in sources:
+            chunk_text = extract_chunk_text(src).strip()
+            if not chunk_text:
+                continue
+
+            block = f"[Source {idx}: {src.file_path}]\n{chunk_text}"
+            block_tokens = len(self.tokenizer.encode(block + "\n\n---\n\n"))
+
+            if current_context_tokens + block_tokens > max_context_tokens:
+                logger.warning(
+                    "Context window exceeded. "
+                    f"Stopping after {len(context_blocks)} sources."
+                )
+                break
+
+            context_blocks.append(block)
+            current_context_tokens += block_tokens
+            idx += 1
+
+        if not context_blocks:
+            return []
+
+        context_str = "\n\n---\n\n".join(context_blocks)
 
         user_prompt = (
             f"Context:\n{context_str}\n\n"
@@ -117,6 +160,7 @@ class AnswerGenerator:
         return [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt},
+            {"role": "assistant", "content": "Based on the provided context,"}
         ]
 
     def _format_prompt(self, messages: list[dict[str, str]]) -> str:
@@ -132,7 +176,9 @@ class AnswerGenerator:
             self.tokenizer.apply_chat_template(
                 messages,
                 tokenize=False,
-                add_generation_prompt=True,
+                add_generation_prompt=False,
+                continue_final_message=True,
+                enable_thinking=False
             )
         )
 
@@ -157,61 +203,44 @@ class AnswerGenerator:
             )
 
         messages = self._build_messages(question, sources)
+        if not messages:
+            return (
+                "No relevant context found in the retrieved sources "
+                "to answer this question."
+            )
         prompt_text = self._format_prompt(messages)
 
         outputs = self.model(
             prompt_text,
-            max_new_tokens=self.max_new_tokens,
             return_full_text=False,
         )
         answer = outputs[0]["generated_text"]
         return answer.strip()
 
-    def _generate_prompts(
-        self, search_results: list[MinimalSearchResults]
-    ) -> Iterator[str]:
-        """Yields formatted prompt strings from search results.
-
-        Args:
-            search_results: List of search results to format.
-
-        Yields:
-            Formatted chat template strings.
-        """
-        for item in search_results:
-            messages = self._build_messages(
-                item.question,
-                item.retrieved_sources,
-            )
-            yield self._format_prompt(messages)
-
-    def process_batch(
-        self, search_results: list[MinimalSearchResults], batch_size: int = 4
-    ) -> list[MinimalAnswer]:
+    def process_batch(self, search_results: list[MinimalSearchResults]
+                      ) -> list[MinimalAnswer]:
         """Generate answers for a batch of search results.
 
         Args:
             search_results: List of search result objects.
-            batch_size: Inference batch size for the text generation pipeline.
 
         Returns:
             List of MinimalAnswer objects containing generated answers.
         """
-        prompt_stream = self._generate_prompts(search_results)
-
-        pipeline_outputs = self.model(
-            prompt_stream,  # type: ignore[call-overload]
-            batch_size=batch_size,
-            max_new_tokens=self.max_new_tokens,
-            return_full_text=False,
-        )
 
         final_answers: list[MinimalAnswer] = []
-        for item, output in zip(search_results, pipeline_outputs):
-            if isinstance(output, list):
-                generated_text = str(output[0]["generated_text"])
-            else:
-                generated_text = str(output["generated_text"])
+        for item in tqdm.tqdm(search_results,
+                              total=len(search_results),
+                              desc="Generating answers"):
+            try:
+                generated_text = self.generate_answer(
+                    question=item.question,
+                    sources=item.retrieved_sources,
+                )
+            except Exception as e:
+                logger.error("Failed to generate answer for question "
+                             f"'{item.question}': {e}")
+                generated_text = "Something went wrong !!"
 
             final_answers.append(
                 MinimalAnswer(
