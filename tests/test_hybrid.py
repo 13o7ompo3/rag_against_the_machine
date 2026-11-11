@@ -58,3 +58,25 @@ def test_merge_by_weighted_rank_weights_preference():
     merged = merge_by_weighted_rank(list1, list2, weight1=10.0, weight2=0.1)
     assert merged[0] == doc1
 
+
+def test_merge_by_weighted_rank_deterministic_ties():
+    """Verify RAT-006: tied items preserve stable deterministic order."""
+    doc1 = Source(file_path="a.py", first_character_index=0,
+                  last_character_index=10)
+    doc2 = Source(file_path="b.py", first_character_index=0,
+                  last_character_index=10)
+
+    # In list1: [doc1, doc2], in list2: [doc2, doc1] with equal weights -> tie
+    merged1 = merge_by_weighted_rank([doc1, doc2], [doc2, doc1], 1.0, 1.0)
+    merged2 = merge_by_weighted_rank([doc1, doc2], [doc2, doc1], 1.0, 1.0)
+    assert [m.file_path for m in merged1] == [m.file_path for m in merged2]
+
+
+def test_hybrid_index_super_init():
+    """Verify RAT-015: HybridIndex initializes SearchIndex base attributes."""
+    from src.hybrid import HybridIndex
+    hybrid = HybridIndex(None, None)
+    assert hasattr(hybrid, "query_cache")
+    assert hybrid.query_cache == {}
+    assert hasattr(hybrid, "chunks_metadata")
+

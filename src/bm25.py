@@ -26,7 +26,11 @@ class BM25:
         self.b = b
 
         self.docs_lens = [len(doc) for doc in corpus]
-        self.avg_len = sum(self.docs_lens) / len(self.docs_lens)
+        self.avg_len = (
+            sum(self.docs_lens) / len(self.docs_lens)
+            if self.docs_lens
+            else 0.0
+        )
         self.docs = [Counter(doc) for doc in corpus]
         self.nd = Counter(word for doc in self.docs for word in doc)
         self.idf: Dict[str, float] = {}
@@ -91,8 +95,10 @@ class BM25:
             A list of BM25 scores for each document in the corpus.
         """
         scores = [0.0] * len(self.docs_lens)
+        if not self.docs_lens or self.avg_len == 0:
+            return scores
 
-        for q in tqdm(query, desc="Calculating BM25 scores"):
+        for q in query:
             if q not in self.idf:
                 continue
 

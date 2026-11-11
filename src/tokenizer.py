@@ -1,5 +1,4 @@
 import re
-import numpy as np
 
 stop_words = ["a", "about", "above", "after", "again", "against", "ain",
               "all", "am", "an", "and", "any", "are", "aren", "aren't", "as",
@@ -29,6 +28,8 @@ stop_words = ["a", "about", "above", "after", "again", "against", "ain",
               "you'd", "you'll", "your", "you're", "yours", "yourself",
               "yourselves", "you've"]
 
+_stop_words = frozenset(stop_words)
+
 
 def tokenize(text: str) -> list[str]:
     """Tokenizes the input text into a list of tokens.
@@ -47,6 +48,4 @@ def tokenize(text: str) -> list[str]:
         lambda m: m.group(0).replace('_', ' ') + ' ' + m.group(0),
         text)
 
-    tokenz = np.array(text.split())
-    mask = np.isin(tokenz, stop_words, invert=True)
-    return list(tokenz[mask])
+    return [w for w in text.split() if w not in _stop_words]

@@ -12,6 +12,7 @@ class HybridIndex(SearchIndex):
             bm25_index (SearchIndex): An instance of a BM25 index.
             semantic_index (SearchIndex): An instance of a semantic index.
         """
+        super().__init__()
         self.bm25_index = bm25_index
         self.semantic_index = semantic_index
 
@@ -156,20 +157,21 @@ def merge_by_weighted_rank(
     Returns:
         list[Source]: The merged list of sources sorted by weighted rank.
     """
-    unique_items = list(set(list1) | set(list2))
+    rank1 = {item: i for i, item in enumerate(list1)}
+    rank2 = {item: i for i, item in enumerate(list2)}
+    seen: set[Source] = set()
+    unique_items: list[Source] = []
+    for item in list1 + list2:
+        if item not in seen:
+            seen.add(item)
+            unique_items.append(item)
+
+    len1 = len(list1)
+    len2 = len(list2)
 
     def calculate_score(item: Source) -> float:
-        score = 0.0
-        if item in list1:
-            score += list1.index(item) * weight1
-        else:
-            score += len(list1) * weight1
-
-        if item in list2:
-            score += list2.index(item) * weight2
-        else:
-            score += len(list2) * weight2
-
-        return score
+        s1 = rank1.get(item, len1) * weight1
+        s2 = rank2.get(item, len2) * weight2
+        return s1 + s2
 
     return sorted(unique_items, key=calculate_score)

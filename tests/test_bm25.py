@@ -63,3 +63,10 @@ def test_bm25_remove_documents():
     assert "banana" not in bm25.docs[0]
     assert "banana" not in bm25.docs[1]
 
+
+def test_bm25_empty_corpus():
+    """Verify RAT-004: empty corpus initializes without ZeroDivisionError."""
+    bm25 = BM25([])
+    assert bm25.avg_len == 0.0
+    assert bm25.get_scores(["hello"]) == []
+
