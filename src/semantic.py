@@ -28,6 +28,7 @@ class SemanticIndex(SearchIndex):
             model_name: Hugging Face model identifier for SentenceTransformer.
         """
         super().__init__()
+        logger.info(f"Loading embedding model '{model_name}'...")
         self.model = SentenceTransformer(model_name)
         self.embeddings: torch.Tensor | None = None
         self.env_key_name = 'KEY2'
@@ -155,11 +156,6 @@ class SemanticIndex(SearchIndex):
                 metadata_handle.write(metadata_bytes)
                 manifest_handle.write(manifest_bytes)
                 max_chunk_size_handle.write(max_chunk_size_bytes)
-
-            os.replace(tensor_path + '.tmp', tensor_path)
-            os.replace(metadata_path + '.tmp', metadata_path)
-            os.replace(manifest_path + '.tmp', manifest_path)
-            os.replace(max_chunk_size_path + '.tmp', max_chunk_size_path)
         except OSError:
             raise RuntimeError(
                 f"Failed to save semantic index to '{processed_dir}'."
@@ -181,6 +177,16 @@ class SemanticIndex(SearchIndex):
             set_key('.env', 'HASH2', integrity_hash)
         except Exception:
             raise RuntimeError("Failed to write semantic integrity metadata.")
+
+        try:
+            os.replace(tensor_path + '.tmp', tensor_path)
+            os.replace(metadata_path + '.tmp', metadata_path)
+            os.replace(manifest_path + '.tmp', manifest_path)
+            os.replace(max_chunk_size_path + '.tmp', max_chunk_size_path)
+        except OSError:
+            raise RuntimeError(
+                f"Failed to commit semantic index files in '{processed_dir}'."
+            )
         self._save_cache()
 
     def load(self, processed_dir: str) -> None:
@@ -267,6 +273,7 @@ class SemanticIndex(SearchIndex):
             self.embeddings = torch.load(
                 BytesIO(embeddings_bytes),
                 map_location='cpu',
+                weights_only=True,
             )
             self.chunks_metadata = pickle.loads(metadata_bytes)
             self.manifest = pickle.loads(manifest_bytes)
@@ -317,7 +324,7 @@ class SemanticIndex(SearchIndex):
             cos_scores = util.cos_sim(query_embedding, self.embeddings)[0]
         except Exception:
             raise RuntimeError(
-                f"Failed to encode or score semantic query: {query!r}."
+                f"Failed to encode or score semantic query: '{query}'."
             )
 
         top_k = min(k, len(self.chunks_metadata))

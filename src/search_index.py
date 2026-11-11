@@ -1,6 +1,8 @@
 from abc import ABC, abstractmethod
-
+import logging
 from .models import MinimalSearchResults, MinimalSource
+
+logger = logging.getLogger(__name__)
 
 
 class SearchIndex(ABC):
@@ -43,11 +45,15 @@ class SearchIndex(ABC):
                 self.processed_dir,
                 f"{self.__class__.__name__.lower()}_cache.pkl",
             )
-            with open(cache_path, 'wb') as f:
+            tmp_path = cache_path + '.tmp'
+            with open(tmp_path, 'wb') as f:
                 f.write(cache_hash.encode('utf-8'))
                 f.write(cache_bytes)
-        except Exception:
-            pass
+            os.replace(tmp_path, cache_path)
+        except Exception as exc:
+            logger.warning(
+                f"Failed to save query cache: {exc}"
+            )
 
     def _load_cache(self) -> None:
         """Load and verify HMAC-signed query cache from disk."""
@@ -84,6 +90,9 @@ class SearchIndex(ABC):
                 content = f.read()
 
             if len(content) < 128:
+                logger.warning(
+                    "Query cache header too short; resetting cache."
+                )
                 self.query_cache = {}
                 return
 
@@ -96,11 +105,17 @@ class SearchIndex(ABC):
                 sha512,
             ).hexdigest()
             if not hmac.compare_digest(calculated_hash, stored_hash):
+                logger.warning(
+                    "Query cache HMAC verification failed; resetting cache."
+                )
                 self.query_cache = {}
                 return
 
             self.query_cache = pickle.loads(cache_bytes)
-        except Exception:
+        except Exception as exc:
+            logger.warning(
+                f"Failed to load query cache: {exc}; resetting cache."
+            )
             self.query_cache = {}
 
     @abstractmethod

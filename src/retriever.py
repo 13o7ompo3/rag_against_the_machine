@@ -143,11 +143,6 @@ class BM25Index(SearchIndex):
                 chunks_handle.write(chunks_bytes)
                 manifest_handle.write(manifest_bytes)
                 max_chunk_size_handle.write(max_chunk_size_bytes)
-
-            os.replace(bm25_path + '.tmp', bm25_path)
-            os.replace(chunks_path + '.tmp', chunks_path)
-            os.replace(manifest_path + '.tmp', manifest_path)
-            os.replace(max_chunk_size_path + '.tmp', max_chunk_size_path)
         except OSError:
             raise RuntimeError(
                 f"Failed to save BM25 index to '{processed_dir}'."
@@ -169,6 +164,16 @@ class BM25Index(SearchIndex):
             set_key('.env', 'HASH1', integrity_hash)
         except Exception:
             raise RuntimeError("Failed to write BM25 integrity metadata.")
+
+        try:
+            os.replace(bm25_path + '.tmp', bm25_path)
+            os.replace(chunks_path + '.tmp', chunks_path)
+            os.replace(manifest_path + '.tmp', manifest_path)
+            os.replace(max_chunk_size_path + '.tmp', max_chunk_size_path)
+        except OSError:
+            raise RuntimeError(
+                f"Failed to commit BM25 index files in '{processed_dir}'."
+            )
         self._save_cache()
 
     def load(self, processed_dir: str) -> None:
@@ -296,7 +301,7 @@ class BM25Index(SearchIndex):
             scores = self.bm25.get_scores(tokenized_query)
         except Exception:
             raise RuntimeError(
-                f"Failed to compute BM25 scores for query: {query!r}."
+                f"Failed to compute BM25 scores for query: '{query}'."
             )
 
         top_k_indices = np.argsort(scores)[-k:][::-1]
