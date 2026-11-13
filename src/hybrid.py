@@ -170,6 +170,14 @@ def merge_by_weighted_rank(
     len2 = len(list2)
 
     def calculate_score(item: Source) -> float:
+        """Calculate the weighted score for a given source item.
+
+        Args:
+            item (Source): The source item for which to calculate the score.
+
+        Returns:
+            float: The calculated weighted score.
+        """
         s1 = rank1.get(item, len1) * weight1
         s2 = rank2.get(item, len2) * weight2
         return s1 + s2
