@@ -124,16 +124,24 @@ class RagCLI:
         except Exception as e:
             logger.error(f"Failed to build {backend} index: {e}")
 
-    def search(self, query: str, k: int, backend: str = 'bm25') -> None:
+    def search(
+        self,
+        query: str,
+        k: int,
+        backend: str = 'bm25',
+    ) -> str | None:
         """Return the top-k sources for a single query.
 
         Args:
             query: The search query string.
             k: Number of top results to return.
             backend: Index backend to query ('bm25', 'semantic', or 'hybrid').
+
+        Returns:
+            JSON string representing MinimalSearchResults, or None on failure.
         """
         if not _validate_param(k, 'k', min_val=1):
-            return
+            return None
 
         logger.info(
             f"Searching with {backend} for '{query}' "
@@ -144,7 +152,7 @@ class RagCLI:
             index.load("data/processed/")
         except Exception as e:
             logger.error(f"Failed to initialize {backend} index: {e}")
-            return
+            return None
         try:
             result = index.search(
                 query,
@@ -152,10 +160,10 @@ class RagCLI:
                 question_id=str(uuid.uuid4()),
             )
             index._save_cache()
+            return result.model_dump_json(indent=2)
         except Exception as e:
             logger.error(f"Failed query '{query}': {e}")
-            return
-        print(result.model_dump_json(indent=2))
+            return None
 
     def search_dataset(
         self,
@@ -237,16 +245,24 @@ class RagCLI:
 
         logger.info(f"Saved student_search_results to {save_path}")
 
-    def answer(self, query: str, k: int = 5, backend: str = 'bm25') -> None:
+    def answer(
+        self,
+        query: str,
+        k: int = 5,
+        backend: str = 'bm25',
+    ) -> str | None:
         """Answer a single query using the retrieved context.
 
         Args:
             query: The input question string to answer.
             k: Number of top retrieved sources to use for context.
             backend: Index backend to query ('bm25', 'semantic', or 'hybrid').
+
+        Returns:
+            JSON string representing MinimalAnswer, or None on failure.
         """
         if not _validate_param(k, 'k', min_val=1):
-            return
+            return None
 
         logger.info(
             f"Answering query '{query}' using top {k} retrieved sources..."
@@ -262,7 +278,7 @@ class RagCLI:
             index._save_cache()
         except Exception as e:
             logger.error(f"Failed during retrieval with {backend}: {e}")
-            return
+            return None
 
         try:
             from .generator import AnswerGenerator
@@ -279,9 +295,10 @@ class RagCLI:
                 retrieved_sources=search_res.retrieved_sources,
                 answer=generated_text,
             )
-            print(final_answer.model_dump_json(indent=2))
+            return final_answer.model_dump_json(indent=2)
         except Exception as e:
             logger.error(f"Failed to generate answer: {e}")
+            return None
 
     def answer_dataset(
         self,
@@ -358,4 +375,9 @@ class RagCLI:
 
 
 if __name__ == '__main__':
-    fire.Fire(RagCLI)
+    try:
+        fire.Fire(RagCLI)
+    except Exception as e:
+        logger.error(f"Unexpected error while running the CLI: {e}")
+    except KeyboardInterrupt:
+        logger.info("CLI execution interrupted by user.")
