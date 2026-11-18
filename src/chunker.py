@@ -335,7 +335,7 @@ def collect_chunk_delta(
             with open(file_path, 'r', encoding='utf-8') as file_handle:
                 text = file_handle.read()
         except Exception as exc:
-            logger.warning(
+            logger.debug(
                 f"Skipping unreadable file '{file_path}': {exc}"
             )
             continue

@@ -1,6 +1,6 @@
 .PHONY: install run debug clean lint lint-strict
 
-CACHE_DIR := $(HOME)/goinfre/
+CACHE_DIR := $(HOME)/goinfre
 
 export HF_HOME := $(CACHE_DIR)/.cache/hf
 export UV_PROJECT_ENVIRONMENT := $(CACHE_DIR)/.venv

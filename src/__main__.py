@@ -74,6 +74,23 @@ def _validate_param(
         return False
 
 
+def _validate_str(value: object, name: str) -> bool:
+    """Validate a string CLI parameter and log an error if invalid.
+
+    Args:
+        value: Input parameter value to validate.
+        name: Parameter name for logging.
+
+    Returns:
+        True if valid, False otherwise.
+    """
+    if not isinstance(value, str) or not value.strip():
+        logger.error(f"Invalid parameter: '{name}'"
+                     "must be a non-empty string.")
+        return False
+    return True
+
+
 class RagCLI:
     """Command-Line Interface for the RAG pipeline."""
 
@@ -106,12 +123,12 @@ class RagCLI:
             backend: Index backend to use ('bm25', 'semantic', or 'hybrid').
             max_chunk_size: Maximum character length for each document chunk.
         """
-        if not _validate_param(
+        if not (_validate_param(
             max_chunk_size,
             'max_chunk_size',
             min_val=100,
             max_val=3000,
-        ):
+        ) and _validate_str(backend, 'backend')):
             return
 
         logger.info(
@@ -140,7 +157,9 @@ class RagCLI:
         Returns:
             JSON string representing MinimalSearchResults, or None on failure.
         """
-        if not _validate_param(k, 'k', min_val=1):
+        if not (_validate_param(k, 'k', min_val=1)
+                and _validate_str(query, 'query')
+                and _validate_str(backend, 'backend')):
             return None
 
         logger.info(
@@ -181,7 +200,10 @@ class RagCLI:
             save_directory: Directory to save the StudentSearchResults.
             backend: Index backend to query ('bm25', 'semantic', or 'hybrid').
         """
-        if not _validate_param(k, 'k', min_val=1):
+        if not (_validate_param(k, 'k', min_val=1)
+                and _validate_str(dataset_path, 'dataset_path')
+                and _validate_str(save_directory, 'save_directory')
+                and _validate_str(backend, 'backend')):
             return
 
         logger.info(
@@ -261,7 +283,9 @@ class RagCLI:
         Returns:
             JSON string representing MinimalAnswer, or None on failure.
         """
-        if not _validate_param(k, 'k', min_val=1):
+        if not (_validate_param(k, 'k', min_val=1)
+                and _validate_str(query, 'query')
+                and _validate_str(backend, 'backend')):
             return None
 
         logger.info(
@@ -311,6 +335,10 @@ class RagCLI:
             student_search_results_path: Path to the StudentSearchResults file.
             save_directory: Directory to save the answer results.
         """
+        if not (_validate_str(student_search_results_path,
+                              'student_search_results_path')
+                and _validate_str(save_directory, 'save_directory')):
+            return
         logger.info(
             f"Generating answers for {student_search_results_path}. "
             f"Saving to {save_directory}..."
@@ -367,6 +395,10 @@ class RagCLI:
             student_search_results_path: Path to the StudentSearchResults file.
             dataset_path: Path to the RagDataset JSON file.
         """
+        if not (_validate_str(student_search_results_path,
+                              'student_search_results_path')
+                and _validate_str(dataset_path, 'dataset_path')):
+            return
         logger.info(
             f"Evaluating {student_search_results_path}"
             f" against ground truth {dataset_path}..."
