@@ -5,7 +5,8 @@ from .models import MinimalSearchResults, MinimalSource
 class HybridIndex(SearchIndex):
     """A hybrid index that combines BM25 and semantic search."""
 
-    def __init__(self, bm25_index: SearchIndex, semantic_index: SearchIndex):
+    def __init__(self, bm25_index: SearchIndex,
+                 semantic_index: SearchIndex) -> None:
         """Initialize the hybrid index with BM25 and semantic indices.
 
         Args:

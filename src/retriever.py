@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 class BM25Index(SearchIndex):
     """BM25-backed search index with the same interface as semantic search."""
 
-    def __init__(self, processed_dir: str | None = None):
+    def __init__(self, processed_dir: str | None = None) -> None:
         """Initialize the BM25 index.
 
         Args:
