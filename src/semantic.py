@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 class SemanticIndex(SearchIndex):
     """A vector index built with a lightweight CPU model for embeddings."""
 
-    def __init__(self, model_name: str = 'all-MiniLM-L6-v2'):
+    def __init__(self, model_name: str = 'all-MiniLM-L6-v2') -> None:
         """Initialize the semantic index with an embedding model.
 
         Args:
@@ -271,9 +271,7 @@ class SemanticIndex(SearchIndex):
 
         try:
             self.embeddings = torch.load(
-                BytesIO(embeddings_bytes),
-                map_location='cpu',
-                weights_only=True,
+                BytesIO(embeddings_bytes)
             )
             self.chunks_metadata = pickle.loads(metadata_bytes)
             self.manifest = pickle.loads(manifest_bytes)

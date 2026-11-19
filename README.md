@@ -281,7 +281,7 @@ Although both models are built on the Transformer architecture, they serve compl
 
 #### B. Output Objective: Fixed Dense Embedding vs. Next-Token Distribution
 * **Sentence Transformers:** The output is a **single, fixed-dimensional continuous vector** (e.g., 384 dimensions for `all-MiniLM-L6-v2`). After passing through the encoder layers, token hidden states are aggregated using **Mean Pooling** (averaging token vectors weighted by attention masks) into a unified embedding. The model is trained via metric learning (such as contrastive or cosine similarity loss) so that semantically similar texts end up close together in vector space.
-* **Text Generation Transformers:** The output is an **open-ended sequence of discrete tokens**. At each step, the hidden state of the final token is projected across the entire vocabulary (e.g., 150,000+ token logits) to produce a probability distribution $P(x_t \mid x_{<t})$. The model samples the next token iteratively until an end-of-sequence token is reached, trained via cross-entropy loss to minimize next-token prediction perplexity.
+* **Text Generation Transformers:** Instead of pooling the whole sequence into a single vector, the model only uses the embedding of the very last token to predict the next one, generating the response autoregressively one token at a time.
 
 #### C. Operational Role in RAG: The Retriever vs. The Generator
 * **The Sentence Transformer is the Retriever:** It executes in a single, parallel forward pass per chunk to index documents into a vector space and perform fast nearest-neighbor lookups for user queries. It does not synthesize new text.
@@ -307,18 +307,21 @@ Although both models are built on the Transformer architecture, they serve compl
 
 ## Challenges Faced
 
-1. **Identifier Tokenization in Source Code:**
-   - *Problem:* Standard whitespace and punctuation tokenizers fail on programming languages where identifiers use `snake_case` or `camelCase`. A query for `calculate_iou` would fail if the chunk had `calculate_iou_metric`.
-   - *Solution:* Implemented custom compound regex expansion in `src/tokenizer.py` that yields both individual word segments and the parent token.
-2. **Atomic Index Persistence and Race Conditions:**
-   - *Problem:* Terminating a process during `pickle.dump` or `torch.save` left broken, unrecoverable index files on disk.
-   - *Solution:* Implemented temporary file staging (`.tmp`) with atomic OS file swapping, combined with HMAC verification on startup.
-3. **Evaluating Continuous Character Spans Against Discrete Chunks:**
-   - *Problem:* Chunks rarely align 100% with human-annotated ground-truth boundaries, causing strict string matching to report false negatives.
-   - *Solution:* Adopted a 1D range Intersection over Union (IoU) metric with a calibrated $0.05$ threshold to accurately capture true positive span retrievals.
-4. **Memory and Latency Constraints on CPU:**
-   - *Problem:* Running both dense vector encoding and autoregressive text generation locally without dedicated GPU access.
-   - *Solution:* Selected lightweight models (`all-MiniLM-L6-v2` at ~80MB and `Qwen/Qwen3-0.6B` at ~1.2GB) and added HMAC-validated query caching in `SearchIndex` to make repeated search queries instantaneous.
+1. **Structural Code Segmentation within Strict Size Ceilings:**
+   - *Problem:* Fixed-size chunkers often split Python code mid-statement or cut across function boundaries, destroying syntactic context. At the same time, chunks can never exceed the 2,000-character ceiling imposed by the evaluation harness.
+   - *Solution:* Implemented recursive structural splitting in `src/chunker.py` that prioritizes `class` and `def` boundaries, combined with greedy fragment merging (`merge_splits`) that packs syntax blocks as tightly as possible while strictly staying under `max_chunk_size`.
+
+2. **Lexical Code Tokenization (`snake_case` vs. Natural Language):**
+   - *Problem:* Standard tokenizers split tokens purely on punctuation and spaces, which breaks code identifiers (e.g. `calculate_iou` split into `calculate` and `iou`), preventing exact identifier matching. Leaving them un-split prevents queries written in natural English from matching relevant function names.
+   - *Solution:* Built a custom compound tokenizer in `src/tokenizer.py` that preserves the original compound identifier alongside its decomposed individual words, allowing BM25 to score high on both exact technical symbols and paraphrased queries.
+
+3. **Tracking Absolute Source Character Offsets:**
+   - *Problem:* The pipeline requires reporting the exact `first_character_index` and `last_character_index` in the original disk file. After recursive splitting, fallback chunking, and merging, keeping track of absolute offsets without accumulating index drift is tricky.
+   - *Solution:* Mapped chunk boundaries back to character indices directly against the raw file content (`_process_splits`), ensuring that every `MinimalSource` accurately references verbatim file spans on disk.
+
+4. **Dynamic Context Budgeting for Local Generation:**
+   - *Problem:* Small local models like `Qwen/Qwen3-0.6B` have strict context windows. Feeding all top-$k$ retrieved chunks naively can easily overflow the position embeddings or crowd out the model's output generation budget.
+   - *Solution:* Built dynamic prompt budgeting in `src/generator.py` that measures token lengths of system prompts, calculates reserve tokens for generation (`max_new_tokens`), and iteratively packs retrieved source blocks until the context budget is reached, gracefully stopping before overflow occurs.
 
 ---
 
@@ -344,7 +347,7 @@ make lint
 # Run strict type checking
 make lint-strict
 
-# Run benchmark evaluation across public and private datasets
+# Run benchmark evaluation across public datasets
 make test
 ```
 

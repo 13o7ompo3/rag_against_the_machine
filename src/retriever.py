@@ -306,7 +306,7 @@ class BM25Index(SearchIndex):
 
         top_k_indices = np.argsort(scores)[-k:][::-1]
         retrieved_sources: List[MinimalSource] = [
-            self.chunks_metadata[i] for i in top_k_indices
+            self.chunks_metadata[i] for i in top_k_indices if scores[i]
         ]
 
         self.query_cache[(query, k)] = retrieved_sources
